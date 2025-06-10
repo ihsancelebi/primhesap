@@ -1,404 +1,302 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
-import { Plus, Trash2, Edit, X, DollarSign, Users, TrendingUp, ChevronDown, ChevronUp, Award, Briefcase, TrendingDown, CreditCard, Banknote, Upload, Download, ArrowLeft, Eye } from 'lucide-react';
-
-// Firebase Imports
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { setLogLevel } from "firebase/app";
-
-// --- Firebase Configuration ---
-// User-provided Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBcxenhaF6c9RMaRwoXeA1tuxxS-a1sA5k",
-  authDomain: "pirimhesap-eb53b.firebaseapp.com",
-  projectId: "pirimhesap-eb53b",
-  storageBucket: "pirimhesap-eb53b.firebasestorage.app",
-  messagingSenderId: "842754627809",
-  appId: "1:842754627809:web:ba796f62c3a894ef29bfa0",
-  measurementId: "G-B0V9ZSYDZQ"
-};
-
-// Use the project ID for database paths to ensure data is stored correctly in your project.
-const appId = firebaseConfig.projectId;
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
-setLogLevel('debug');
-
-// --- Helper Functions & Constants ---
-const formatCurrency = (value, currency = 'TRY') => new Intl.NumberFormat('tr-TR', { style: 'currency', currency }).format(value || 0);
-const formatDate = (date) => new Date(date).toLocaleDateString('tr-TR');
-const toInputDate = (date) => {
-    if(!date) return '';
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF5733'];
-const PAYMENT_METHOD_COLORS = { 'Nakit': '#22c55e', 'Kredi Kartı': '#3b82f6' };
-
-// --- UI Components ---
-
-const StatCard = ({ title, value, icon, color }) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm flex items-center space-x-4 transition-transform hover:scale-105">
-        <div className={`p-3 rounded-full ${color}`}>
-            {icon}
-        </div>
-        <div>
-            <p className="text-sm text-gray-500">{title}</p>
-            <p className="text-2xl font-bold text-gray-800">{value}</p>
-        </div>
-    </div>
-);
-
-const Modal = ({ children, isOpen, onClose, title }) => {
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
-            <div className="bg-gray-100 rounded-2xl shadow-xl w-full max-w-lg m-4">
-                <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                    <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-                    <button onClick={onClose} className="text-gray-500 hover:text-gray-800 transition">
-                        <X size={24} />
-                    </button>
-                </div>
-                <div className="p-6 max-h-[80vh] overflow-y-auto">
-                    {children}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const Input = ({ label, ...props }) => (
-    <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-        <input {...props} className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" />
-    </div>
-);
-
-const Select = ({ label, children, ...props }) => (
-    <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-        <select {...props} className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-            {children}
-        </select>
-    </div>
-);
-
-const Button = ({ children, onClick, className = 'bg-blue-600 hover:bg-blue-700 text-white', type = 'button', disabled = false }) => (
-    <button type={type} onClick={onClick} disabled={disabled} className={`flex justify-center items-center space-x-2 px-4 py-3 rounded-lg font-semibold transition shadow-sm ${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-        {children}
-    </button>
-);
-
-
-// --- Form Components ---
-const SaleForm = ({ sale, items, personnel, onSave, onCancel, usdToTryRate }) => {
-    const [formData, setFormData] = useState({
-        personnelId: sale?.personnelId || '',
-        itemId: sale?.itemId || '',
-        quantity: sale?.quantity || 1,
-        date: sale?.date || new Date().toISOString().split('T')[0],
-        paymentMethod: sale?.paymentMethod || 'credit_card',
-        price: sale?.price || ''
-    });
-    useEffect(() => {
-        if (formData.itemId) {
-            const selectedItem = items.find(i => i.id === formData.itemId);
-            if (selectedItem && (!sale || sale.itemId !== formData.itemId)) {
-                setFormData(prev => ({ ...prev, price: selectedItem.price }));
-            }
-        }
-    }, [formData.itemId, items, sale]);
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        const selectedItem = items.find(i => i.id === formData.itemId);
-        const selectedPersonnel = personnel.find(p => p.id === formData.personnelId);
-        if (!selectedItem || !selectedPersonnel || !usdToTryRate) { 
-            console.error("Gerekli veriler (ürün, personel veya kur) eksik.");
-            return;
-         }
-        const quantity = parseInt(formData.quantity, 10);
-        const salePrice = parseFloat(formData.price);
-        const totalPrice = salePrice * quantity;
-        let itemCostInTry = selectedItem.cost;
-        if(selectedItem.costCurrency === 'USD'){
-            itemCostInTry = selectedItem.cost * usdToTryRate;
-        }
-        const totalCost = itemCostInTry * quantity;
-        const netProfit = totalPrice - totalCost;
-        const commissionRate = formData.paymentMethod === 'cash' ? selectedItem.commissionRateCash : selectedItem.commissionRateCreditCard;
-        const personnelCommission = netProfit * (commissionRate / 100);
-        onSave({ ...formData, quantity, totalPrice, totalCost, netProfit, personnelCommission, itemName: selectedItem.name, personnelName: selectedPersonnel.name });
-    };
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <Select label="Personel" name="personnelId" value={formData.personnelId} onChange={handleChange} required><option value="">Personel Seçin</option>{personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
-            <Select label="Ürün / Hizmet" name="itemId" value={formData.itemId} onChange={handleChange} required><option value="">Ürün veya Hizmet Seçin</option>{items.map(i => <option key={i.id} value={i.id}>{i.name} ({formatCurrency(i.price)})</option>)}</Select>
-            <Input label="Satış Fiyatı (Birim)" name="price" type="number" step="0.01" min="0" value={formData.price} onChange={handleChange} required />
-            <Select label="Ödeme Yöntemi" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} required><option value="credit_card">Kredi Kartı</option><option value="cash">Nakit</option></Select>
-            <Input label="Adet" name="quantity" type="number" min="1" value={formData.quantity} onChange={handleChange} required />
-            <Input label="Tarih" name="date" type="date" value={formData.date} onChange={handleChange} required />
-            <div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit" disabled={!usdToTryRate}>{!usdToTryRate ? 'Kur bilgisi bekleniyor...' : 'Kaydet'}</Button></div>
-        </form>
-    );
-};
-const PersonnelForm = ({ person, onSave, onCancel }) => {
-    const [name, setName] = useState(person?.name || '');
-    const handleSubmit = (e) => { e.preventDefault(); onSave({ name }); };
-    return (<form onSubmit={handleSubmit} className="space-y-4"><Input label="Personel Adı" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Örn: Ahmet Yılmaz" required /><div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit">Kaydet</Button></div></form>);
-};
-const ItemForm = ({ item, onSave, onCancel }) => {
-    const [formData, setFormData] = useState({ name: item?.name || '', price: item?.price || '', cost: item?.cost || '', costCurrency: item?.costCurrency || 'TRY', commissionRateCreditCard: item?.commissionRateCreditCard || 0, commissionRateCash: item?.commissionRateCash || 0, type: item?.type || 'product' });
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleSubmit = (e) => { e.preventDefault(); onSave({ ...formData, price: parseFloat(formData.price), cost: parseFloat(formData.cost), commissionRateCreditCard: parseFloat(formData.commissionRateCreditCard), commissionRateCash: parseFloat(formData.commissionRateCash) }); };
-    return (<form onSubmit={handleSubmit} className="space-y-4"><Select label="Tip" name="type" value={formData.type} onChange={handleChange} required><option value="product">Ürün</option><option value="service">Hizmet</option></Select><Input label="Adı" name="name" type="text" value={formData.name} onChange={handleChange} placeholder="Örn: Laptop" required /><Input label="Satış Fiyatı (Birim)" name="price" type="number" step="0.01" min="0" value={formData.price} onChange={handleChange} placeholder="Örn: 15000" required /><div className="grid grid-cols-2 gap-4"><Input label="Maliyet (Birim)" name="cost" type="number" step="0.01" min="0" value={formData.cost} onChange={handleChange} placeholder="Örn: 12000" required /><Select label="Maliyet Para Birimi" name="costCurrency" value={formData.costCurrency} onChange={handleChange} required><option value="TRY">TRY</option><option value="USD">USD</option></Select></div><Input label="Kredi Kartı Prim Oranı (%)" name="commissionRateCreditCard" type="number" step="0.1" min="0" max="100" value={formData.commissionRateCreditCard} onChange={handleChange} placeholder="Örn: 8" required /><Input label="Nakit Prim Oranı (%)" name="commissionRateCash" type="number" step="0.1" min="0" max="100" value={formData.commissionRateCash} onChange={handleChange} placeholder="Örn: 12" required /><div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit">Kaydet</Button></div></form>);
-};
-const ExcelImportModal = ({ isOpen, onClose, onImport }) => {
-    const [file, setFile] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        const scriptId = 'xlsx-script';
-        if (!document.getElementById(scriptId)) {
-            const script = document.createElement('script');
-            script.id = scriptId;
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-            script.async = true;
-            document.head.appendChild(script);
-        }
-    }, []);
-
-    const handleDownloadTemplate = () => {
-        if (typeof XLSX === 'undefined') {
-            setError('Excel kütüphanesi henüz yüklenmedi. Lütfen bir saniye sonra tekrar deneyin.');
-            return;
-        }
-        const templateData = [{ name: 'Örnek Ürün (TL Maliyet)', type: 'product', price: 3500, cost: 2000, costCurrency: 'TRY', commissionRateCreditCard: 10, commissionRateCash: 15 }, { name: 'Örnek Hizmet (Dolar Maliyet)', type: 'service', price: 10000, cost: 300, costCurrency: 'USD', commissionRateCreditCard: 20, commissionRateCash: 25 }];
-        const ws = XLSX.utils.json_to_sheet(templateData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Sablon');
-        XLSX.writeFile(wb, 'Urun_Hizmet_Sablonu.xlsx');
-    };
-
-    const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
-        setError('');
-    };
-
-    const handleImport = () => {
-        if (!file) {
-            setError('Lütfen bir dosya seçin.');
-            return;
-        }
-        if (typeof XLSX === 'undefined') {
-            setError('Excel kütüphanesi yüklenemedi. Lütfen sayfayı yenileyip tekrar deneyin.');
-            return;
-        }
-        
-        setLoading(true);
-        setError('');
-
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet);
-                await onImport(json); // Await the entire import process
-                onClose(); // Only close on success
-            } catch (err) {
-                console.error(err);
-                setError(err.message || 'Dosya işlenirken veya veritabanına kaydedilirken bir hata oluştu. Lütfen dosya formatını ve içeriğini kontrol edin.');
-            } finally {
-                setLoading(false); // Stop loading indicator in any case
-            }
-        };
-        reader.onerror = () => {
-            setError('Dosya okunurken bir hata oluştu.');
-            setLoading(false);
-        };
-        reader.readAsArrayBuffer(file);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Excel'den Yükle">
-            <div className="space-y-4">
-                <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800">
-                    <p className="font-semibold">Adım 1: Şablonu İndirin</p>
-                    <p>Sütunlar: name, type, price, cost, costCurrency, commissionRateCreditCard, commissionRateCash</p>
-                </div>
-                <Button onClick={handleDownloadTemplate} className="bg-gray-600 hover:bg-gray-700 text-white">
-                    <Download size={18} /><span>Şablonu İndir</span>
-                </Button>
-                <hr />
-                <div className="p-4 border border-green-200 bg-green-50 rounded-lg text-sm text-green-800">
-                    <p className="font-semibold">Adım 2: Dosyanızı Yükleyin</p>
-                    <p>Hazırladığınız Excel dosyasını seçip "Yükle" butonuna tıklayın.</p>
-                </div>
-                <Input type="file" onChange={handleFileChange} accept=".xlsx, .xls" />
-                {error && <p className="text-red-600 text-sm">{error}</p>}
-                <Button onClick={handleImport} disabled={loading || !file}>
-                    {loading ? <><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Yükleniyor...</> : <><Upload size={18} /> Yükle</>}
-                </Button>
-            </div>
-        </Modal>
-    );
-};
-
-// --- View Components ---
-const Dashboard = ({ sales, personnel }) => {
-    const totalRevenue = useMemo(() => sales.reduce((sum, sale) => sum + sale.totalPrice, 0), [sales]);
-    const totalNetProfit = useMemo(() => sales.reduce((sum, sale) => sum + sale.netProfit, 0), [sales]);
-    const totalCommission = useMemo(() => sales.reduce((sum, sale) => sum + sale.personnelCommission, 0), [sales]);
-    const commissionByPersonnel = useMemo(() => { const data = personnel.map(p => ({ name: p.name, value: sales.filter(s => s.personnelId === p.id).reduce((sum, s) => sum + s.personnelCommission, 0) })); return data.filter(d => d.value > 0).sort((a, b) => b.value - a.value); }, [sales, personnel]);
-    const paymentMethodDistribution = useMemo(() => { const data = sales.reduce((acc, sale) => { const method = sale.paymentMethod === 'cash' ? 'Nakit' : 'Kredi Kartı'; acc[method] = (acc[method] || 0) + sale.totalPrice; return acc; }, {}); return Object.entries(data).map(([name, value]) => ({ name, value })); }, [sales]);
-    const monthlySales = useMemo(() => { const data = {}; sales.forEach(sale => { const month = new Date(sale.date).toLocaleString('tr-TR', { month: 'short', year: 'numeric' }); if (!data[month]) { data[month] = { Ciro: 0, "Net Kâr": 0 }; } data[month].Ciro += sale.totalPrice; data[month]["Net Kâr"] += sale.netProfit; }); const sortedMonths = Object.keys(data).sort((a, b) => { const [monthA, yearA] = a.split(' '); const [monthB, yearB] = b.split(' '); const monthMap = { 'Oca': 0, 'Şub': 1, 'Mar': 2, 'Nis': 3, 'May': 4, 'Haz': 5, 'Tem': 6, 'Ağu': 7, 'Eyl': 8, 'Eki': 9, 'Kas': 10, 'Ara': 11 }; return new Date(yearA, monthMap[monthA]) - new Date(yearB, monthMap[monthB]); }); return sortedMonths.map(month => ({ month, ...data[month] })); }, [sales]);
-    return (<div className="space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"><StatCard title="Toplam Ciro" value={formatCurrency(totalRevenue)} icon={<DollarSign className="text-white" />} color="bg-blue-500" /><StatCard title="Toplam Net Kâr" value={formatCurrency(totalNetProfit)} icon={<TrendingUp className="text-white" />} color="bg-green-500" /><StatCard title="Toplam Prim" value={formatCurrency(totalCommission)} icon={<Award className="text-white" />} color="bg-amber-500" /></div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className="bg-white p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-semibold text-gray-800 mb-4">Aylık Finansal Trend</h3><ResponsiveContainer width="100%" height={300}><LineChart data={monthlySales}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="month" /><YAxis tickFormatter={(val) => formatCurrency(val)} /><Tooltip formatter={(value) => formatCurrency(value)} /><Legend /><Line type="monotone" dataKey="Ciro" stroke="#8884d8" strokeWidth={2} activeDot={{ r: 8 }} /><Line type="monotone" dataKey="Net Kâr" stroke="#82ca9d" strokeWidth={2} /></LineChart></ResponsiveContainer></div><div className="bg-white p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-semibold text-gray-800 mb-4">Ödeme Yöntemi Dağılımı</h3><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={paymentMethodDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{paymentMethodDistribution.map((entry, index) => (<Cell key={`cell-${index}`} fill={PAYMENT_METHOD_COLORS[entry.name]} />))}</Pie><Tooltip formatter={(value) => formatCurrency(value)} /><Legend /></PieChart></ResponsiveContainer></div><div className="bg-white p-6 rounded-2xl shadow-sm lg:col-span-2"><h3 className="text-lg font-semibold text-gray-800 mb-4">Personele Göre Prim Dağılımı</h3><ResponsiveContainer width="100%" height={300}><BarChart data={commissionByPersonnel}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis tickFormatter={(val) => formatCurrency(val)} /><Tooltip formatter={(value) => formatCurrency(value)} /><Legend /><Bar dataKey="value" name="Kazanılan Prim" fill="#ffc658" /></BarChart></ResponsiveContainer></div></div></div>);
-};
-const PersonnelDetailView = ({ personnel, allSales, onBack }) => {
-    const [filter, setFilter] = useState('this_month');
-    const [customDates, setCustomDates] = useState({ start: toInputDate(new Date()), end: toInputDate(new Date()) });
-    const filteredSales = useMemo(() => { const personSales = allSales.filter(s => s.personnelId === personnel.id); if (filter === 'all_time') return personSales; let startDate, endDate; const now = new Date(); if (filter === 'this_week') { const firstDay = new Date(now.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1))); firstDay.setHours(0, 0, 0, 0); startDate = firstDay; endDate = new Date(); } else if (filter === 'this_month') { startDate = new Date(now.getFullYear(), now.getMonth(), 1); endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0); } else if (filter === 'last_month') { startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); endDate = new Date(now.getFullYear(), now.getMonth(), 0); } else if (filter === 'custom' && customDates.start && customDates.end) { startDate = new Date(customDates.start); startDate.setHours(0, 0, 0, 0); endDate = new Date(customDates.end); endDate.setHours(23, 59, 59, 999); } else { return personSales; } return personSales.filter(sale => { const saleDate = new Date(sale.date); return saleDate >= startDate && saleDate <= endDate; }); }, [personnel, allSales, filter, customDates]);
-    const stats = useMemo(() => ({ totalRevenue: filteredSales.reduce((s, a) => s + a.totalPrice, 0), totalNetProfit: filteredSales.reduce((s, a) => s + a.netProfit, 0), totalCommission: filteredSales.reduce((s, a) => s + a.personnelCommission, 0), totalSalesCount: filteredSales.length }), [filteredSales]);
-    const FilterButton = ({ value, label }) => (<button onClick={() => setFilter(value)} className={`px-4 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>{label}</button>);
-    return (<div className="space-y-6"><div className="flex justify-between items-center"><Button onClick={onBack} className="w-auto bg-gray-200 hover:bg-gray-300 text-gray-800"><ArrowLeft size={20} /> Geri Dön</Button><h2 className="text-2xl font-bold text-gray-800">{personnel.name} - Performans Raporu</h2></div><div className="bg-white p-4 rounded-xl shadow-sm flex flex-wrap items-center gap-4"><div className="flex items-center gap-2"><FilterButton value="this_week" label="Bu Hafta" /><FilterButton value="this_month" label="Bu Ay" /><FilterButton value="last_month" label="Geçen Ay" /><FilterButton value="all_time" label="Tüm Zamanlar" /><FilterButton value="custom" label="Özel" /></div>{filter === 'custom' && (<div className="flex items-center gap-2 border-l pl-4"><Input type="date" value={customDates.start} onChange={e => setCustomDates(d => ({ ...d, start: e.target.value }))} /><Input type="date" value={customDates.end} onChange={e => setCustomDates(d => ({ ...d, end: e.target.value }))} /></div>)}</div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><StatCard title="Toplam Satış (Ciro)" value={formatCurrency(stats.totalRevenue)} icon={<DollarSign className="text-white" />} color="bg-blue-500" /><StatCard title="Toplam Net Kâr" value={formatCurrency(stats.totalNetProfit)} icon={<TrendingUp className="text-white" />} color="bg-green-500" /><StatCard title="Toplam Prim" value={formatCurrency(stats.totalCommission)} icon={<Award className="text-white" />} color="bg-amber-500" /><StatCard title="Toplam İşlem" value={stats.totalSalesCount} icon={<Briefcase className="text-white" />} color="bg-indigo-500" /></div><DataTable columns={[{ key: 'date', header: 'Tarih', render: (date) => formatDate(date), sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'totalPrice', header: 'Tutar', render: (price) => formatCurrency(price), sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: (profit) => formatCurrency(profit), sortable: true }, { key: 'personnelCommission', header: 'Kazanılan Prim', render: (comm) => formatCurrency(comm), sortable: true }]} data={filteredSales} hideActions /></div>);
-}
-const DataTable = ({ columns, data, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, hideActions = false }) => {
-    const [sortConfig, setSortConfig] = useState(null);
-    const sortedData = useMemo(() => { let sortableItems = [...data]; if (sortConfig !== null) { sortableItems.sort((a, b) => { const valA = a[sortConfig.key] || ''; const valB = b[sortConfig.key] || ''; if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1; return 0; }); } return sortableItems; }, [data, sortConfig]);
-    const requestSort = (key) => { let direction = 'ascending'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') { direction = 'descending'; } setSortConfig({ key, direction }); };
-    return (<div className="bg-white p-6 rounded-2xl shadow-sm"><div className="flex justify-end mb-4 space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Upload size={18} /><span>Excel'den Yükle</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-auto"><Plus size={18} /><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-4 text-sm font-semibold text-gray-600 cursor-pointer" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</div></th>))}{!hideActions && <th className="p-4 text-sm font-semibold text-gray-600">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-4 text-gray-700">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-4"><div className="flex space-x-3">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Eye size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Edit size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Trash2 size={18} /></button>}</div></td>}</tr>))}</tbody></table></div>{sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}</div>);
-};
-
-// --- App Component (Main Logic) ---
-export default function App() {
-    const [userId, setUserId] = useState(null);
-    const [isAuthReady, setIsAuthReady] = useState(false);
-    const [view, setView] = useState('dashboard');
-    const [sales, setSales] = useState([]);
-    const [items, setItems] = useState([]);
-    const [personnel, setPersonnel] = useState([]);
-    const [isSaleModalOpen, setSaleModalOpen] = useState(false);
-    const [isItemModalOpen, setItemModalOpen] = useState(false);
-    const [isPersonnelModalOpen, setPersonnelModalOpen] = useState(false);
-    const [isImportModalOpen, setImportModalOpen] = useState(false);
-    const [editingSale, setEditingSale] = useState(null);
-    const [editingItem, setEditingItem] = useState(null);
-    const [editingPersonnel, setEditingPersonnel] = useState(null);
-    const [selectedPersonnelId, setSelectedPersonnelId] = useState(null);
-    const [usdToTryRate, setUsdToTryRate] = useState(null);
-
-    // Fetch Exchange Rate
-    useEffect(() => {
-        fetch('https://api.exchangerate-api.com/v4/latest/USD')
-            .then(response => response.json())
-            .then(data => {
-                setUsdToTryRate(data.rates.TRY);
-            })
-            .catch(error => {
-                console.error("Error fetching exchange rate:", error);
-                setUsdToTryRate(32.0); // Fallback rate
-            });
-    }, []);
-
-    // Firebase Auth & Data Fetching
-    useEffect(() => {
-        const authAndLogin = async () => {
-            try {
-                await signInAnonymously(auth);
-            } catch (err) {
-                console.error("Anonymous sign-in failed:", err);
-            }
-        };
-        const unsubscribe = onAuthStateChanged(auth, (user) => { 
-            if (user) {
-                setUserId(user.uid); 
-            } else {
-                setUserId(null); 
-            }
-            setIsAuthReady(true); 
-        });
-        authAndLogin();
-        return () => unsubscribe();
-    }, []);
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gelişmiş Satış Takip Paneli</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel to transpile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Chart.js for charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- XLSX for Excel Export/Import -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
-    useEffect(() => {
-        if (!isAuthReady || !userId) return; // Wait for auth to be ready and user to be available
+    <!-- Firebase Libraries (v8 compatibility) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBcxenhaF6c9RMaRwoXeA1tuxxS-a1sA5k",
+          authDomain: "pirimhesap-eb53b.firebaseapp.com",
+          projectId: "pirimhesap-eb53b",
+          storageBucket: "pirimhesap-eb53b.firebasestorage.app",
+          messagingSenderId: "842754627809",
+          appId: "1:842754627809:web:ba796f62c3a894ef29bfa0",
+          measurementId: "G-B0V9ZSYDZQ"
+        };
         
-        const unsubSales = onSnapshot(collection(db, 'sales'), (s) => setSales(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-        const unsubItems = onSnapshot(collection(db, 'items'), (s) => setItems(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-        const unsubPersonnel = onSnapshot(collection(db, 'personnel'), (s) => setPersonnel(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-        return () => { unsubSales(); unsubItems(); unsubPersonnel(); };
-    }, [isAuthReady, userId]); // Add userId to dependency array
-
-    // Data Handling Functions
-    const handleSave = async (collectionName, data, id) => { const path = collectionName; try { if (id) await updateDoc(doc(db, path, id), data); else await addDoc(collection(db, path), data); } catch (e) { console.error(e); } setSaleModalOpen(false); setItemModalOpen(false); setPersonnelModalOpen(false); setEditingSale(null); setEditingItem(null); setEditingPersonnel(null); };
-    const handleBulkImport = async (importedItems) => {
-        const path = 'items';
-        const batch = writeBatch(db);
-        if (!importedItems || importedItems.length === 0) {
-            throw new Error("Excel dosyası boş veya okunamadı.");
+        // --- Firebase Initialization (v8 syntax) ---
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
         }
-        importedItems.forEach(item => {
-            const price = parseFloat(item.price); const cost = parseFloat(item.cost); const ccRate = parseFloat(item.commissionRateCreditCard); const cashRate = parseFloat(item.commissionRateCash);
-            const newItem = {
-                name: String(item.name || '').trim(),
-                type: String(item.type || 'product').toLowerCase() === 'service' ? 'service' : 'product',
-                price: isNaN(price) ? 0 : price,
-                cost: isNaN(cost) ? 0 : cost,
-                costCurrency: ['TRY', 'USD'].includes(String(item.costCurrency || '').toUpperCase()) ? String(item.costCurrency).toUpperCase() : 'TRY',
-                commissionRateCreditCard: isNaN(ccRate) ? 0 : ccRate,
-                commissionRateCash: isNaN(cashRate) ? 0 : cashRate
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        const appId = firebaseConfig.projectId;
+
+        // --- Helper Functions & Constants ---
+        const formatCurrency = (value, currency = 'TRY') => new Intl.NumberFormat('tr-TR', { style: 'currency', currency }).format(value || 0);
+        const formatDate = (dateStr) => {
+            if (!dateStr) return "Geçersiz Tarih";
+            const date = new Date(dateStr);
+            if (isNaN(date)) return "Geçersiz Tarih";
+            return date.toLocaleDateString('tr-TR');
+        };
+        const toInputDate = (date) => {
+            if(!date) return '';
+            const d = new Date(date);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        const PAYMENT_METHOD_COLORS = { 'Nakit': '#22c55e', 'Kredi Kartı': '#3b82f6' };
+
+        // --- Icon Component ---
+        const Icon = ({ name, size = 16, className = '' }) => {
+            useEffect(() => {
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            });
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+        
+        // --- UI Components ---
+        const StatCard = ({ title, value, icon, color }) => (
+            <div className="bg-white p-6 rounded-2xl shadow-sm flex items-center space-x-4 transition-transform hover:scale-105">
+                <div className={`p-3 rounded-full ${color}`}>{icon}</div>
+                <div><p className="text-sm text-gray-500">{title}</p><p className="text-2xl font-bold text-gray-800">{value}</p></div>
+            </div>
+        );
+
+        const Modal = ({ children, isOpen, onClose, title }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
+                    <div className="bg-gray-100 rounded-2xl shadow-xl w-full max-w-lg m-4">
+                        <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                            <h3 className="text-xl font-bold text-gray-800">{title}</h3>
+                            <button onClick={onClose} className="text-gray-500 hover:text-gray-800 transition"><Icon name="x" size={24} /></button>
+                        </div>
+                        <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Input = ({ label, ...props }) => (
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{label}</label><input {...props} className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" /></div>
+        );
+
+        const Select = ({ label, children, ...props }) => (
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{label}</label><select {...props} className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">{children}</select></div>
+        );
+
+        const Button = ({ children, onClick, className = 'bg-blue-600 hover:bg-blue-700 text-white', type = 'button', disabled = false }) => (
+            <button type={type} onClick={onClick} disabled={disabled} className={`flex justify-center items-center space-x-2 px-4 py-3 rounded-lg font-semibold transition shadow-sm ${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>{children}</button>
+        );
+        
+        // --- Form Components ---
+        const SaleForm = ({ sale, items, personnel, onSave, onCancel, usdToTryRate }) => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [suggestions, setSuggestions] = useState([]);
+            const [isSuggestionsVisible, setIsSuggestionsVisible] = useState(false);
+            const [formData, setFormData] = useState({ personnelId: sale?.personnelId || '', itemId: sale?.itemId || '', quantity: sale?.quantity || 1, date: sale?.date || new Date().toISOString().split('T')[0], paymentMethod: sale?.paymentMethod || 'credit_card', price: sale?.price || '' });
+            
+            useEffect(() => {
+                if (sale && sale.itemId) {
+                    const selectedItem = items.find(i => i.id === sale.itemId);
+                    if (selectedItem) {
+                        setSearchTerm(selectedItem.name);
+                    }
+                }
+            }, [sale, items]);
+            
+            useEffect(() => { 
+                if (formData.itemId) { 
+                    const selectedItem = items.find(i => i.id === formData.itemId); 
+                    if (selectedItem && sale?.itemId !== formData.itemId) { 
+                        setFormData(prev => ({ ...prev, price: selectedItem.price })); 
+                    } 
+                } 
+            }, [formData.itemId, items]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
             };
-            if (newItem.name) { batch.set(doc(collection(db, path)), newItem); }
-        });
-        try { await batch.commit(); } catch (e) { console.error(e); throw new Error("Veritabanına yazılırken bir hata oluştu."); }
-    };
-    const handleDelete = async (collectionName, id) => { if (window.confirm("Bu kaydı silmek istediğinizden emin misiniz?")) { try { await deleteDoc(doc(db, collectionName, id)); } catch (e) { console.error(e); } } };
 
-    // Modal Control
-    const openModal = (type, item = null) => { switch (type) { case 'sale': setEditingSale(item); setSaleModalOpen(true); break; case 'item': setEditingItem(item); setItemModalOpen(true); break; case 'personnel': setEditingPersonnel(item); setPersonnelModalOpen(true); break; case 'import': setImportModalOpen(true); break; default: break; } };
+            const handleSearchChange = (e) => {
+                const value = e.target.value;
+                setSearchTerm(value);
+                setFormData(prev => ({ ...prev, itemId: '' }));
+                if (value.length >= 3) {
+                    const filtered = items.filter(item => item.name.toLowerCase().includes(value.toLowerCase())).slice(0, 10);
+                    setSuggestions(filtered);
+                    setIsSuggestionsVisible(true);
+                } else {
+                    setSuggestions([]);
+                    setIsSuggestionsVisible(false);
+                }
+            };
+            
+            const handleSuggestionClick = (item) => {
+                setFormData(prev => ({ ...prev, itemId: item.id }));
+                setSearchTerm(item.name);
+                setIsSuggestionsVisible(false);
+            };
 
-    // Render Logic
-    const renderView = () => {
-        const paymentMethodRender = (method) => (method === 'cash' ? <span className="flex items-center"><Banknote size={16} className="mr-2 text-green-600" />Nakit</span> : <span className="flex items-center"><CreditCard size={16} className="mr-2 text-blue-600" />Kredi Kartı</span>);
-        const costRender = (cost, item) => item.costCurrency === 'USD' ? `${formatCurrency(cost, 'USD')}` : `${formatCurrency(cost, 'TRY')}`;
-        const formatCurrencyCell = (value) => formatCurrency(value);
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const selectedItem = items.find(i => i.id === formData.itemId); const selectedPersonnel = personnel.find(p => p.id === formData.personnelId); if (!selectedItem || !selectedPersonnel || !usdToTryRate) { alert("Lütfen personel ve ürün/hizmet seçtiğinizden emin olun."); return; }
+                const quantity = parseInt(formData.quantity, 10); const salePrice = parseFloat(formData.price); const totalPrice = salePrice * quantity;
+                let itemCostInTry = selectedItem.cost; if (selectedItem.costCurrency === 'USD') { itemCostInTry = selectedItem.cost * usdToTryRate; }
+                let totalCost = itemCostInTry * quantity;
+                if (formData.paymentMethod === 'credit_card') { const creditCardFee = totalPrice * 0.20; totalCost += creditCardFee; }
+                const netProfit = totalPrice - totalCost; const commissionRate = formData.paymentMethod === 'cash' ? selectedItem.commissionRateCash : selectedItem.commissionRateCreditCard; const personnelCommission = netProfit * (commissionRate / 100);
+                onSave({ ...formData, quantity, totalPrice, totalCost, netProfit, personnelCommission, itemName: selectedItem.name, personnelName: selectedPersonnel.name });
+            };
 
-        switch (view) {
-            case 'dashboard': return <Dashboard sales={sales} personnel={personnel} />;
-            case 'sales': return <DataTable columns={[{ key: 'date', header: 'Tarih', render: formatDate, sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'personnelName', header: 'Personel', sortable: true }, { key: 'paymentMethod', header: 'Ödeme', render: paymentMethodRender, sortable: true }, { key: 'totalPrice', header: 'Tutar', render: formatCurrencyCell, sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: formatCurrencyCell, sortable: true }, { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }]} data={sales} onEdit={(item) => openModal('sale', item)} onDelete={(id) => handleDelete('sales', id)} onAddItem={() => openModal('sale')} addItemLabel="Yeni Satış Ekle" />;
-            case 'personnel': if (selectedPersonnelId) { const person = personnel.find(p => p.id === selectedPersonnelId); return <PersonnelDetailView personnel={person} allSales={sales} onBack={() => setSelectedPersonnelId(null)} />; } return <DataTable columns={[{ key: 'name', header: 'Personel Adı', sortable: true }]} data={personnel} onViewDetails={(id) => setSelectedPersonnelId(id)} onEdit={(item) => openModal('personnel', item)} onDelete={(id) => handleDelete('personnel', id)} onAddItem={() => openModal('personnel')} addItemLabel="Yeni Personel Ekle" />;
-            case 'items': return <DataTable columns={[{ key: 'name', header: 'Adı', sortable: true }, { key: 'type', header: 'Tip', render: (t) => t === 'service' ? 'Hizmet' : 'Ürün', sortable: true }, { key: 'price', header: 'Satış Fiyatı', render: formatCurrencyCell, sortable: true }, { key: 'cost', header: 'Maliyet', render: costRender, sortable: true}, { key: 'commissionRateCreditCard', header: 'KK Prim (%)', render: (r) => `${r}%`, sortable: true }, { key: 'commissionRateCash', header: 'Nakit Prim (%)', render: (r) => `${r}%`, sortable: true }]} data={items} onEdit={(item) => openModal('item', item)} onDelete={(id) => handleDelete('items', id)} onAddItem={() => openModal('item')} addItemLabel="Yeni Ürün/Hizmet" onImport={() => openModal('import')} />;
-            default: return <Dashboard sales={sales} personnel={personnel} />;
+            return (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <Select label="Personel" name="personnelId" value={formData.personnelId} onChange={handleChange} required><option value="">Personel Seçin</option>{personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
+                    
+                    <div className="relative">
+                        <Input
+                            label="Ürün/Hizmet Ara"
+                            type="text"
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                            onBlur={() => setTimeout(() => setIsSuggestionsVisible(false), 200)}
+                            onFocus={handleSearchChange}
+                            placeholder="Aramak için en az 3 harf yazın..."
+                        />
+                        {isSuggestionsVisible && suggestions.length > 0 && (
+                            <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-b-lg -mt-1 max-h-60 overflow-y-auto shadow-lg">
+                                {suggestions.map(item => (
+                                    <li key={item.id} className="px-4 py-2 cursor-pointer hover:bg-gray-100" onMouseDown={() => handleSuggestionClick(item)}>
+                                        {item.name} <span className="text-sm text-gray-500">({formatCurrency(item.price)})</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+
+                    <Input label="Satış Fiyatı (Birim)" name="price" type="number" step="0.01" min="0" value={formData.price} onChange={handleChange} required />
+                    <Select label="Ödeme Yöntemi" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} required><option value="credit_card">Kredi Kartı</option><option value="cash">Nakit</option></Select>
+                    <Input label="Adet" name="quantity" type="number" min="1" value={formData.quantity} onChange={handleChange} required />
+                    <Input label="Tarih" name="date" type="date" value={formData.date} onChange={handleChange} required />
+                    <div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit" disabled={!usdToTryRate || !formData.itemId}>{!usdToTryRate ? 'Kur bilgisi bekleniyor...' : 'Kaydet'}</Button></div>
+                </form>
+            );
+        };
+        const PersonnelForm = ({ person, onSave, onCancel }) => { const [name, setName] = useState(person?.name || ''); const handleSubmit = (e) => { e.preventDefault(); onSave({ name }); }; return (<form onSubmit={handleSubmit} className="space-y-4"><Input label="Personel Adı" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Örn: Ahmet Yılmaz" required /><div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit">Kaydet</Button></div></form>); };
+        const ItemForm = ({ item, onSave, onCancel }) => { const [formData, setFormData] = useState({ name: item?.name || '', price: item?.price || '', cost: item?.cost || '', costCurrency: item?.costCurrency || 'TRY', commissionRateCreditCard: item?.commissionRateCreditCard || 0, commissionRateCash: item?.commissionRateCash || 0, type: item?.type || 'product' }); const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value })); const handleSubmit = (e) => { e.preventDefault(); onSave({ ...formData, price: parseFloat(formData.price), cost: parseFloat(formData.cost), commissionRateCreditCard: parseFloat(formData.commissionRateCreditCard), commissionRateCash: parseFloat(formData.commissionRateCash) }); }; return (<form onSubmit={handleSubmit} className="space-y-4"><Select label="Tip" name="type" value={formData.type} onChange={handleChange} required><option value="product">Ürün</option><option value="service">Hizmet</option></Select><Input label="Adı" name="name" type="text" value={formData.name} onChange={handleChange} placeholder="Örn: Laptop" required /><Input label="Satış Fiyatı (Birim)" name="price" type="number" step="0.01" min="0" value={formData.price} onChange={handleChange} placeholder="Örn: 15000" required /><div className="grid grid-cols-2 gap-4"><Input label="Maliyet (Birim)" name="cost" type="number" step="0.01" min="0" value={formData.cost} onChange={handleChange} placeholder="Örn: 12000" required /><Select label="Maliyet Para Birimi" name="costCurrency" value={formData.costCurrency} onChange={handleChange} required><option value="TRY">TRY</option><option value="USD">USD</option></Select></div><Input label="Kredi Kartı Prim Oranı (%)" name="commissionRateCreditCard" type="number" step="0.1" min="0" max="100" value={formData.commissionRateCreditCard} onChange={handleChange} placeholder="Örn: 8" required /><Input label="Nakit Prim Oranı (%)" name="commissionRateCash" type="number" step="0.1" min="0" max="100" value={formData.commissionRateCash} onChange={handleChange} placeholder="Örn: 12" required /><div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit">Kaydet</Button></div></form>); };
+        const ExcelImportModal = ({ isOpen, onClose, onImport }) => {
+            const [file, setFile] = useState(null); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+            const handleDownloadTemplate = () => { if (typeof XLSX === 'undefined') { setError('Excel kütüphanesi henüz yüklenmedi.'); return; } const templateData = [{ name: 'Örnek Ürün (TL Maliyet)', type: 'product', price: 3500, cost: 2000, costCurrency: 'TRY', commissionRateCreditCard: 10, commissionRateCash: 15 }, { name: 'Örnek Hizmet (Dolar Maliyet)', type: 'service', price: 10000, cost: 300, costCurrency: 'USD', commissionRateCreditCard: 20, commissionRateCash: 25 }]; const ws = XLSX.utils.json_to_sheet(templateData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Sablon'); XLSX.writeFile(wb, 'Urun_Hizmet_Sablonu.xlsx'); };
+            const handleFileChange = (e) => { setFile(e.target.files[0]); setError(''); };
+            const handleImport = () => { if (!file) { setError('Lütfen bir dosya seçin.'); return; } if (typeof XLSX === 'undefined') { setError('Excel kütüphanesi yüklenemedi.'); return; } setLoading(true); setError(''); const reader = new FileReader(); reader.onload = async (e) => { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, { type: 'array' }); const sheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[sheetName]; await onImport(XLSX.utils.sheet_to_json(worksheet)); onClose(); } catch (err) { setError(err.message || 'Dosya işlenemedi.'); } finally { setLoading(false); } }; reader.onerror = () => { setError('Dosya okunurken hata.'); setLoading(false); }; reader.readAsArrayBuffer(file); };
+            return (<Modal isOpen={isOpen} onClose={onClose} title="Excel'den Yükle"><div className="space-y-4"><div className="p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800"><p className="font-semibold">Adım 1: Şablonu İndirin</p><p>Sütunlar: name, type, price, cost, costCurrency, commissionRateCreditCard, commissionRateCash</p></div><Button onClick={handleDownloadTemplate} className="bg-gray-600 hover:bg-gray-700 text-white"><Icon name="download" size={18} /><span>Şablonu İndir</span></Button><hr /><div className="p-4 border border-green-200 bg-green-50 rounded-lg text-sm text-green-800"><p className="font-semibold">Adım 2: Dosyanızı Yükleyin</p><p>Hazırladığınız Excel dosyasını seçip "Yükle" butonuna tıklayın.</p></div><Input type="file" onChange={handleFileChange} accept=".xlsx, .xls" />{error && <p className="text-red-600 text-sm">{error}</p>}<Button onClick={handleImport} disabled={loading || !file}>{loading ? <><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Yükleniyor...</> : <><Icon name="upload" size={18}/> Yükle</>}</Button></div></Modal>);
+        };
+        
+        // Chart.js Wrapper Component
+        const ChartComponent = ({ type, data, options }) => {
+            const chartRef = useRef(null); const chartInstance = useRef(null);
+            useEffect(() => { if (chartInstance.current) { chartInstance.current.destroy(); } if (chartRef.current) { const ctx = chartRef.current.getContext('2d'); chartInstance.current = new Chart(ctx, { type, data, options }); } return () => { if (chartInstance.current) { chartInstance.current.destroy(); } }; }, [data, options, type]);
+            return <div className="chart-container"><canvas ref={chartRef}></canvas></div>;
+        };
+
+        // --- View Components ---
+        const Dashboard = ({ sales, personnel }) => {
+            const totalRevenue = useMemo(() => sales.reduce((sum, sale) => sum + sale.totalPrice, 0), [sales]); const totalNetProfit = useMemo(() => sales.reduce((sum, sale) => sum + sale.netProfit, 0), [sales]); const totalCommission = useMemo(() => sales.reduce((sum, sale) => sum + sale.personnelCommission, 0), [sales]);
+            const commissionByPersonnel = useMemo(() => { const data = personnel.map(p => ({ name: p.name, value: sales.filter(s => s.personnelId === p.id).reduce((sum, s) => sum + s.personnelCommission, 0) })); return data.filter(d => d.value > 0).sort((a, b) => b.value - a.value); }, [sales, personnel]);
+            const paymentMethodDistribution = useMemo(() => { const data = sales.reduce((acc, sale) => { const method = sale.paymentMethod === 'cash' ? 'Nakit' : 'Kredi Kartı'; acc[method] = (acc[method] || 0) + sale.totalPrice; return acc; }, {}); return Object.entries(data).map(([name, value]) => ({ name, value })); }, [sales]);
+            const monthlySales = useMemo(() => { const data = {}; sales.forEach(sale => { const month = new Date(sale.date).toLocaleString('tr-TR', { month: 'short', year: 'numeric' }); if (!data[month]) { data[month] = { Ciro: 0, "Net Kâr": 0 }; } data[month].Ciro += sale.totalPrice; data[month]["Net Kâr"] += sale.netProfit; }); const sortedMonths = Object.keys(data).sort((a, b) => { const [monthA, yearA] = a.split(' '); const [monthB, yearB] = b.split(' '); const monthMap = { 'Oca': 0, 'Şub': 1, 'Mar': 2, 'Nis': 3, 'May': 4, 'Haz': 5, 'Tem': 6, 'Ağu': 7, 'Eyl': 8, 'Eki': 9, 'Kas': 10, 'Ara': 11 }; return new Date(yearA, monthMap[monthA]) - new Date(yearB, monthMap[monthB]); }); return sortedMonths.map(month => ({ month, ...data[month] })); }, [sales]);
+            const lineChartData = { labels: monthlySales.map(d => d.month), datasets: [ { label: 'Ciro', data: monthlySales.map(d => d.Ciro), borderColor: '#8884d8', backgroundColor: '#8884d8', fill: false }, { label: 'Net Kâr', data: monthlySales.map(d => d['Net Kâr']), borderColor: '#82ca9d', backgroundColor: '#82ca9d', fill: false } ] };
+            const pieChartData = { labels: paymentMethodDistribution.map(d => d.name), datasets: [{ data: paymentMethodDistribution.map(d => d.value), backgroundColor: paymentMethodDistribution.map(d => PAYMENT_METHOD_COLORS[d.name]) }] };
+            const barChartData = { labels: commissionByPersonnel.map(d => d.name), datasets: [{ label: 'Kazanılan Prim', data: commissionByPersonnel.map(d => d.value), backgroundColor: '#ffc658' }] };
+            return (<div className="space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"><StatCard title="Toplam Ciro" value={formatCurrency(totalRevenue)} icon={<Icon name="dollar-sign" className="text-white"/>} color="bg-blue-500" /><StatCard title="Toplam Net Kâr" value={formatCurrency(totalNetProfit)} icon={<Icon name="trending-up" className="text-white"/>} color="bg-green-500" /><StatCard title="Toplam Prim" value={formatCurrency(totalCommission)} icon={<Icon name="award" className="text-white"/>} color="bg-amber-500" /></div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><div className="bg-white p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-semibold text-gray-800 mb-4">Aylık Finansal Trend</h3><ChartComponent type='line' data={lineChartData} /></div><div className="bg-white p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-semibold text-gray-800 mb-4">Ödeme Yöntemi Dağılımı</h3><ChartComponent type='pie' data={pieChartData} /></div><div className="bg-white p-6 rounded-2xl shadow-sm lg:col-span-2"><h3 className="text-lg font-semibold text-gray-800 mb-4">Personele Göre Prim Dağılımı</h3><ChartComponent type='bar' data={barChartData} /></div></div></div>);
+        };
+        const PersonnelDetailView = ({ personnel, allSales, onBack }) => {
+            const [filter, setFilter] = useState('this_month');
+            const [customDates, setCustomDates] = useState({ start: toInputDate(new Date()), end: toInputDate(new Date()) });
+            const filteredSales = useMemo(() => { const personSales = allSales.filter(s => s.personnelId === personnel.id); if (filter === 'all_time') return personSales; let startDate, endDate; const now = new Date(); if (filter === 'this_week') { const firstDay = new Date(now.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1))); firstDay.setHours(0, 0, 0, 0); startDate = firstDay; endDate = new Date(); } else if (filter === 'this_month') { startDate = new Date(now.getFullYear(), now.getMonth(), 1); endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0); } else if (filter === 'last_month') { startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); endDate = new Date(now.getFullYear(), now.getMonth(), 0); } else if (filter === 'custom' && customDates.start && customDates.end) { startDate = new Date(customDates.start); startDate.setHours(0, 0, 0, 0); endDate = new Date(customDates.end); endDate.setHours(23, 59, 59, 999); } else { return personSales; } return personSales.filter(sale => { const saleDate = new Date(sale.date); return saleDate >= startDate && saleDate <= endDate; }); }, [personnel, allSales, filter, customDates]);
+            const stats = useMemo(() => ({ totalRevenue: filteredSales.reduce((s, a) => s + a.totalPrice, 0), totalNetProfit: filteredSales.reduce((s, a) => s + a.netProfit, 0), totalCommission: filteredSales.reduce((s, a) => s + a.personnelCommission, 0), totalSalesCount: filteredSales.length }), [filteredSales]);
+            const FilterButton = ({ value, label }) => (<button onClick={() => setFilter(value)} className={`px-4 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>{label}</button>);
+            return (<div className="space-y-6"><div className="flex justify-between items-center"><Button onClick={onBack} className="w-auto bg-gray-200 hover:bg-gray-300 text-gray-800"><Icon name="arrow-left" size={20}/> Geri Dön</Button><h2 className="text-2xl font-bold text-gray-800">{personnel.name} - Performans Raporu</h2></div><div className="bg-white p-4 rounded-xl shadow-sm flex flex-wrap items-center gap-4"><div className="flex items-center gap-2"><FilterButton value="this_week" label="Bu Hafta" /><FilterButton value="this_month" label="Bu Ay" /><FilterButton value="last_month" label="Geçen Ay" /><FilterButton value="all_time" label="Tüm Zamanlar" /><FilterButton value="custom" label="Özel" /></div>{filter === 'custom' && (<div className="flex items-center gap-2 border-l pl-4"><Input type="date" value={customDates.start} onChange={e => setCustomDates(d => ({ ...d, start: e.target.value }))} /><Input type="date" value={customDates.end} onChange={e => setCustomDates(d => ({ ...d, end: e.target.value }))} /></div>)}</div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><StatCard title="Toplam Satış (Ciro)" value={formatCurrency(stats.totalRevenue)} icon={<Icon name="dollar-sign" className="text-white" />} color="bg-blue-500" /><StatCard title="Toplam Net Kâr" value={formatCurrency(stats.totalNetProfit)} icon={<Icon name="trending-up" className="text-white" />} color="bg-green-500" /><StatCard title="Toplam Prim" value={formatCurrency(stats.totalCommission)} icon={<Icon name="award" className="text-white" />} color="bg-amber-500" /><StatCard title="Toplam İşlem" value={stats.totalSalesCount} icon={<Icon name="briefcase" className="text-white" />} color="bg-indigo-500" /></div><DataTable columns={[{ key: 'date', header: 'Tarih', render: (date) => formatDate(date), sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'totalPrice', header: 'Tutar', render: (price) => formatCurrency(price), sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: (profit) => formatCurrency(profit), sortable: true }, { key: 'personnelCommission', header: 'Kazanılan Prim', render: (comm) => formatCurrency(comm), sortable: true }]} data={filteredSales} hideActions /></div>);
         }
-    };
-    const NavItem = ({ children, onClick, isActive }) => (<button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition ${isActive ? 'bg-blue-600 text-white font-semibold shadow' : 'text-gray-600 hover:bg-gray-200'}`}>{children}</button>);
+        const DataTable = ({ columns, data, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, hideActions = false }) => {
+            const [sortConfig, setSortConfig] = useState(null);
+            const sortedData = useMemo(() => { let sortableItems = [...data]; if (sortConfig !== null) { sortableItems.sort((a, b) => { const valA = a[sortConfig.key] || ''; const valB = b[sortConfig.key] || ''; if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1; return 0; }); } return sortableItems; }, [data, sortConfig]);
+            const requestSort = (key) => { let direction = 'ascending'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') { direction = 'descending'; } setSortConfig({ key, direction }); };
+            return (<div className="bg-white p-6 rounded-2xl shadow-sm"><div className="flex justify-end mb-4 space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-4 text-sm font-semibold text-gray-600 cursor-pointer" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-4 text-sm font-semibold text-gray-600">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-4 text-gray-700">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-4"><div className="flex space-x-3">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody></table></div>{sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}</div>);
+        };
 
-    if (!isAuthReady) { return <div className="flex h-screen items-center justify-center bg-gray-100"><p className="text-lg">Uygulama Yükleniyor...</p></div>; }
-    return (
-        <div className="flex h-screen bg-gray-100 font-sans">
-            <aside className="w-64 bg-white p-6 flex-shrink-0 flex flex-col justify-between shadow-lg">
-                <div><h1 className="text-2xl font-bold text-blue-600 mb-8">Satış Paneli</h1><nav className="space-y-3"><NavItem onClick={() => {setView('dashboard'); setSelectedPersonnelId(null)}} isActive={view === 'dashboard'}><TrendingUp size={20} /><span>Gösterge Paneli</span></NavItem><NavItem onClick={() => {setView('sales'); setSelectedPersonnelId(null)}} isActive={view === 'sales'}><DollarSign size={20} /><span>Satışlar</span></NavItem><NavItem onClick={() => {setView('personnel'); setSelectedPersonnelId(null)}} isActive={view === 'personnel'}><Users size={20} /><span>Personel</span></NavItem><NavItem onClick={() => {setView('items'); setSelectedPersonnelId(null)}} isActive={view === 'items'}><Briefcase size={20} /><span>Ürünler & Hizmetler</span></NavItem></nav></div>
-                <div className="text-center text-xs text-gray-400"><p>Firebase Proje ID:</p><p className="break-words">{appId}</p><p className="mt-2 font-semibold text-green-600">USD/TRY: {usdToTryRate || 'Yükleniyor...'}</p></div>
-            </aside>
-            <main className="flex-1 p-8 overflow-y-auto">{renderView()}</main>
-            <ExcelImportModal isOpen={isImportModalOpen} onClose={() => setImportModalOpen(false)} onImport={handleBulkImport} />
-            <Modal isOpen={isSaleModalOpen} onClose={() => setSaleModalOpen(false)} title={editingSale ? "Satış Düzenle" : "Yeni Satış Ekle"}><SaleForm sale={editingSale} items={items} personnel={personnel} onSave={(data) => handleSave('sales', data, editingSale?.id)} onCancel={() => { setSaleModalOpen(false); setEditingSale(null); }} usdToTryRate={usdToTryRate} /></Modal>
-            <Modal isOpen={isItemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Düzenle" : "Yeni Ürün/Hizmet Ekle"}><ItemForm item={editingItem} onSave={(data) => handleSave('items', data, editingItem?.id)} onCancel={() => { setItemModalOpen(false); setEditingItem(null); }} /></Modal>
-            <Modal isOpen={isPersonnelModalOpen} onClose={() => setPersonnelModalOpen(false)} title={editingPersonnel ? "Personel Düzenle" : "Yeni Personel Ekle"}><PersonnelForm person={editingPersonnel} onSave={(data) => handleSave('personnel', data, editingPersonnel?.id)} onCancel={() => { setPersonnelModalOpen(false); setEditingPersonnel(null); }} /></Modal>
-        </div>
-    );
-}
+        // --- App Component (Main Logic) ---
+        const App = () => {
+            const [userId, setUserId] = useState(null); const [isAuthReady, setIsAuthReady] = useState(false); const [view, setView] = useState('dashboard'); const [sales, setSales] = useState([]); const [items, setItems] = useState([]); const [personnel, setPersonnel] = useState([]); const [isSaleModalOpen, setSaleModalOpen] = useState(false); const [isItemModalOpen, setItemModalOpen] = useState(false); const [isPersonnelModalOpen, setPersonnelModalOpen] = useState(false); const [isImportModalOpen, setImportModalOpen] = useState(false); const [editingSale, setEditingSale] = useState(null); const [editingItem, setEditingItem] = useState(null); const [editingPersonnel, setEditingPersonnel] = useState(null); const [selectedPersonnelId, setSelectedPersonnelId] = useState(null); const [usdToTryRate, setUsdToTryRate] = useState(null);
+            useEffect(() => { if (window.lucide) { lucide.createIcons(); } }, [view, isSaleModalOpen, isItemModalOpen, isPersonnelModalOpen, isImportModalOpen, items, sales, personnel]);
+            useEffect(() => { fetch('https://api.exchangerate-api.com/v4/latest/USD').then(response => response.json()).then(data => setUsdToTryRate(data.rates.TRY)).catch(error => { console.error(error); setUsdToTryRate(32.0); }); }, []);
+            useEffect(() => { const unsubscribe = auth.onAuthStateChanged((user) => { if (user) { setUserId(user.uid); } else { auth.signInAnonymously().catch(err => console.error(err)); } setIsAuthReady(true); }); return () => unsubscribe(); }, []);
+            useEffect(() => { if (!isAuthReady || !userId) return; const unsubSales = db.collection('sales').onSnapshot((s) => setSales(s.docs.map(d => ({ id: d.id, ...d.data() })))); const unsubItems = db.collection('items').onSnapshot((s) => setItems(s.docs.map(d => ({ id: d.id, ...d.data() })))); const unsubPersonnel = db.collection('personnel').onSnapshot((s) => setPersonnel(s.docs.map(d => ({ id: d.id, ...d.data() })))); return () => { unsubSales(); unsubItems(); unsubPersonnel(); }; }, [isAuthReady, userId]);
+            const handleSave = async (collectionName, data, id) => { try { if (id) await db.collection(collectionName).doc(id).update(data); else await db.collection(collectionName).add(data); } catch (e) { console.error(e); } setSaleModalOpen(false); setItemModalOpen(false); setPersonnelModalOpen(false); setEditingSale(null); setEditingItem(null); setEditingPersonnel(null); };
+            const handleBulkImport = async (importedItems) => { const batch = db.batch(); if (!importedItems || importedItems.length === 0) throw new Error("Dosya boş."); importedItems.forEach(item => { const price = parseFloat(item.price); const cost = parseFloat(item.cost); const ccRate = parseFloat(item.commissionRateCreditCard); const cashRate = parseFloat(item.commissionRateCash); const newItem = { name: String(item.name || '').trim(), type: String(item.type || 'product').toLowerCase(), price: isNaN(price) ? 0 : price, cost: isNaN(cost) ? 0 : cost, costCurrency: ['TRY', 'USD'].includes(String(item.costCurrency || '').toUpperCase()) ? String(item.costCurrency).toUpperCase() : 'TRY', commissionRateCreditCard: isNaN(ccRate) ? 0 : ccRate, commissionRateCash: isNaN(cashRate) ? 0 : cashRate }; if (newItem.name) { const newDocRef = db.collection('items').doc(); batch.set(newDocRef, newItem); } }); try { await batch.commit(); } catch (e) { console.error(e); throw new Error("Yazma izni reddedildi. Firebase kurallarını kontrol edin."); } };
+            const handleDelete = async (collectionName, id) => { if (window.confirm("Bu kaydı silmek istediğinizden emin misiniz?")) { try { await db.collection(collectionName).doc(id).delete(); } catch (e) { console.error(e); } } };
+            const openModal = (type, item = null) => { switch (type) { case 'sale': setEditingSale(item); setSaleModalOpen(true); break; case 'item': setEditingItem(item); setItemModalOpen(true); break; case 'personnel': setEditingPersonnel(item); setPersonnelModalOpen(true); break; case 'import': setImportModalOpen(true); break; } };
+            const renderView = () => {
+                const paymentMethodRender = (method) => (method === 'cash' ? <span className="flex items-center"><Icon name="banknote" size={16} className="mr-2 text-green-600"/>Nakit</span> : <span className="flex items-center"><Icon name="credit-card" size={16} className="mr-2 text-blue-600"/>Kredi Kartı</span>);
+                const costRender = (cost, item) => item.costCurrency === 'USD' ? `${formatCurrency(cost, 'USD')}` : `${formatCurrency(cost, 'TRY')}`; const formatCurrencyCell = (value) => formatCurrency(value);
+                switch (view) {
+                    case 'dashboard': return <Dashboard sales={sales} personnel={personnel} />;
+                    case 'sales': return <DataTable columns={[{ key: 'date', header: 'Tarih', render: formatDate, sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'personnelName', header: 'Personel', sortable: true }, { key: 'paymentMethod', header: 'Ödeme', render: paymentMethodRender, sortable: true }, { key: 'totalPrice', header: 'Tutar', render: formatCurrencyCell, sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: formatCurrencyCell, sortable: true }, { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }]} data={sales} onEdit={(item) => openModal('sale', item)} onDelete={(id) => handleDelete('sales', id)} onAddItem={() => openModal('sale')} addItemLabel="Yeni Satış Ekle" />;
+                    case 'personnel': if (selectedPersonnelId) { const person = personnel.find(p => p.id === selectedPersonnelId); return <PersonnelDetailView personnel={person} allSales={sales} onBack={() => setSelectedPersonnelId(null)} />; } return <DataTable columns={[{ key: 'name', header: 'Personel Adı', sortable: true }]} data={personnel} onViewDetails={(id) => setSelectedPersonnelId(id)} onEdit={(item) => openModal('personnel', item)} onDelete={(id) => handleDelete('personnel', id)} onAddItem={() => openModal('personnel')} addItemLabel="Yeni Personel Ekle" />;
+                    case 'items': return <DataTable columns={[{ key: 'name', header: 'Adı', sortable: true }, { key: 'type', header: 'Tip', render: (t) => t === 'service' ? 'Hizmet' : 'Ürün', sortable: true }, { key: 'price', header: 'Satış Fiyatı', render: formatCurrencyCell, sortable: true }, { key: 'cost', header: 'Maliyet', render: costRender, sortable: true}, { key: 'commissionRateCreditCard', header: 'KK Prim (%)', render: (r) => `${r}%`, sortable: true }, { key: 'commissionRateCash', header: 'Nakit Prim (%)', render: (r) => `${r}%`, sortable: true }]} data={items} onEdit={(item) => openModal('item', item)} onDelete={(id) => handleDelete('items', id)} onAddItem={() => openModal('item')} addItemLabel="Yeni Ürün/Hizmet" onImport={() => openModal('import')} />;
+                    default: return <Dashboard sales={sales} personnel={personnel} />;
+                }
+            };
+            const NavItem = ({ children, onClick, isActive }) => (<button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition ${isActive ? 'bg-blue-600 text-white font-semibold shadow' : 'text-gray-600 hover:bg-gray-200'}`}>{children}</button>);
+            if (!isAuthReady) { return <div className="flex h-screen items-center justify-center bg-gray-100"><p className="text-lg">Uygulama Yükleniyor...</p></div>; }
+            return (
+                <div className="flex h-screen bg-gray-100 font-sans">
+                    <aside className="w-64 bg-white p-6 flex-shrink-0 flex flex-col justify-between shadow-lg">
+                        <div><h1 className="text-2xl font-bold text-blue-600 mb-8">Satış Paneli</h1><nav className="space-y-3"><NavItem onClick={() => {setView('dashboard'); setSelectedPersonnelId(null)}} isActive={view === 'dashboard'}><Icon name="trending-up" size={20}/><span>Gösterge Paneli</span></NavItem><NavItem onClick={() => {setView('sales'); setSelectedPersonnelId(null)}} isActive={view === 'sales'}><Icon name="dollar-sign" size={20}/><span>Satışlar</span></NavItem><NavItem onClick={() => {setView('personnel'); setSelectedPersonnelId(null)}} isActive={view === 'personnel'}><Icon name="users" size={20}/><span>Personel</span></NavItem><NavItem onClick={() => {setView('items'); setSelectedPersonnelId(null)}} isActive={view === 'items'}><Icon name="briefcase" size={20}/><span>Ürünler & Hizmetler</span></NavItem></nav></div>
+                        <div className="text-center text-xs text-gray-400"><p>Proje ID:</p><p className="break-words">{appId}</p><p className="mt-2 font-semibold text-green-600">USD/TRY: {usdToTryRate || 'Yükleniyor...'}</p></div>
+                    </aside>
+                    <main className="flex-1 p-8 overflow-y-auto">{renderView()}</main>
+                    <ExcelImportModal isOpen={isImportModalOpen} onClose={() => setImportModalOpen(false)} onImport={handleBulkImport} />
+                    <Modal isOpen={isSaleModalOpen} onClose={() => setSaleModalOpen(false)} title={editingSale ? "Satış Düzenle" : "Yeni Satış Ekle"}><SaleForm sale={editingSale} items={items} personnel={personnel} onSave={(data) => handleSave('sales', data, editingSale?.id)} onCancel={() => { setSaleModalOpen(false); setEditingSale(null); }} usdToTryRate={usdToTryRate} /></Modal>
+                    <Modal isOpen={isItemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Düzenle" : "Yeni Ürün/Hizmet Ekle"}><ItemForm item={editingItem} onSave={(data) => handleSave('items', data, editingItem?.id)} onCancel={() => { setItemModalOpen(false); setEditingItem(null); }} /></Modal>
+                    <Modal isOpen={isPersonnelModalOpen} onClose={() => setPersonnelModalOpen(false)} title={editingPersonnel ? "Personel Düzenle" : "Yeni Personel Ekle"}><PersonnelForm person={editingPersonnel} onSave={(data) => handleSave('personnel', data, editingPersonnel?.id)} onCancel={() => { setEditingPersonnel(null); setPersonnelModalOpen(false);}} /></Modal>
+                </div>
+            );
+        };
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
