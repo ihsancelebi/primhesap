@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Boran Hesap</title>
+    <!-- Apple iOS Ana Ekrana Ekleme ikonu -->
+    <!-- Not: "ipsicon.png" dosyanızı bir sunucuya yükledikten sonra href değerini o adresle değiştirmeniz gerekir. -->
+    <link rel="apple-touch-icon" href="https://placehold.co/180x180/1C1C1C/FFFFFF?text=IPS">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="https://placehold.co/180x180/1C1C1C/FFFFFF?text=IPS">
+    
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React Libraries -->
@@ -258,7 +264,6 @@
                             { key: 'date', header: 'Tarih', render: (date) => formatDate(date), sortable: true },
                             { key: 'itemName', header: 'Ürün/Hizmet', sortable: true },
                             { key: 'totalPrice', header: 'Tutar', render: (price) => formatCurrency(price), sortable: true },
-                            { key: 'netProfit', header: 'KEV', render: (profit) => formatCurrency(profit), sortable: true },
                             { key: 'personnelCommission', header: 'Kazanılan Prim', render: (comm) => formatCurrency(comm), sortable: true }
                         ]} 
                         data={filteredSales} 
@@ -296,10 +301,7 @@
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // 1. Tüm personeli çek.
                     const personnelSnapshot = await getDocs(collection(db, 'personnel'));
-
-                    // 2. Client tarafında büyük/küçük harf duyarsız olarak "boran"ı bul.
                     const boranDoc = personnelSnapshot.docs.find(doc => doc.data().name.toLowerCase() === "boran");
 
                     if (!boranDoc) {
@@ -309,7 +311,6 @@
                     const boran = { id: boranDoc.id, ...boranDoc.data() };
                     setBoranData(boran);
 
-                    // 3. Bulunan personelin ID'si ile satışları getir.
                     const salesQuery = query(collection(db, "sales"), where("personnelId", "==", boran.id));
                     const unsubSales = onSnapshot(salesQuery, (snapshot) => {
                         const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
