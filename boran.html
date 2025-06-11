@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boran Hesap</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel to transpile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        window.firebaseApp = initializeApp;
+    </script>
+    <script type="module">
+        import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        window.firebaseAuth = { getAuth, onAuthStateChanged, signInAnonymously };
+    </script>
+     <script type="module">
+        import { getFirestore, collection, onSnapshot, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.firebaseFirestore = { getFirestore, collection, onSnapshot, query, where, getDocs };
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for better look */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBcxenhaF6c9RMaRwoXeA1tuxxS-a1sA5k",
+            authDomain: "pirimhesap-eb53b.firebaseapp.com",
+            projectId: "pirimhesap-eb53b",
+            storageBucket: "pirimhesap-eb53b.firebasestorage.app",
+            messagingSenderId: "842754627809",
+            appId: "1:842754627809:web:ba796f62c3a894ef29bfa0",
+            measurementId: "G-B0V9ZSYDZQ"
+        };
+        
+        // --- Firebase Initialization ---
+        let app, db, auth;
+        try {
+            app = window.firebaseApp(firebaseConfig);
+            db = window.firebaseFirestore.getFirestore(app);
+            auth = window.firebaseAuth.getAuth(app);
+        } catch (e) {
+            console.error("Firebase başlatılamadı.", e);
+        }
+
+        // --- Helper Functions & Constants ---
+        const formatCurrency = (value, currency = 'TRY') => new Intl.NumberFormat('tr-TR', { style: 'currency', currency }).format(value || 0);
+        const formatDate = (dateStr) => {
+            if (!dateStr) return "Geçersiz Tarih";
+            const date = new Date(dateStr);
+            if (isNaN(date)) return "Geçersiz Tarih";
+            return date.toLocaleDateString('tr-TR');
+        };
+        const toInputDate = (date) => {
+            if(!date) return '';
+            const d = new Date(date);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // --- Icon Component ---
+        const Icon = ({ name, size = 16, className = '' }) => {
+            useEffect(() => {
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            });
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+        
+        // --- UI Components ---
+        const StatCard = ({ title, value, icon, color }) => (
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm flex items-center space-x-4 transition-transform hover:scale-105">
+                <div className={`p-3 rounded-full ${color}`}>{icon}</div>
+                <div><p className="text-sm text-gray-500">{title}</p><p className="text-xl sm:text-2xl font-bold text-gray-800">{value}</p></div>
+            </div>
+        );
+
+        const Input = ({ label, ...props }) => (
+            <div>
+                {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+                <input {...props} className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" />
+            </div>
+        );
+        
+        const DataTable = ({ columns, data, hideActions = false }) => {
+            const [sortConfig, setSortConfig] = useState(null);
+            const sortedData = useMemo(() => {
+                let sortableItems = [...data];
+                if (sortConfig !== null) {
+                    sortableItems.sort((a, b) => {
+                        const valA = a[sortConfig.key] || '';
+                        const valB = b[sortConfig.key] || '';
+                        if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                        if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                        return 0;
+                    });
+                }
+                return sortableItems;
+            }, [data, sortConfig]);
+
+            const requestSort = (key) => {
+                let direction = 'ascending';
+                if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+                    direction = 'descending';
+                }
+                setSortConfig({ key, direction });
+            };
+
+            return (
+                <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead>
+                                <tr className="border-b border-gray-200">
+                                    {columns.map(col => (
+                                        <th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}>
+                                            <div className="flex items-center">
+                                                {col.header}
+                                                {col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedData.map(item => (
+                                    <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                        {columns.map(col => (
+                                            <td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">
+                                                {col.render ? col.render(item[col.key], item) : item[col.key]}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}
+                </div>
+            );
+        };
+
+        const PersonnelDetailView = ({ personnel, allSales }) => {
+            const [filter, setFilter] = useState('this_month');
+            const [customDates, setCustomDates] = useState({ start: toInputDate(new Date()), end: toInputDate(new Date()) });
+            
+            const filteredSales = useMemo(() => {
+                const personSales = allSales.filter(s => s.personnelId === personnel.id);
+                if (filter === 'all_time') return personSales;
+                
+                let startDate, endDate;
+                const now = new Date();
+                
+                if (filter === 'this_week') {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+                    startDate = new Date(today);
+                    startDate.setDate(today.getDate() - dayOfWeek);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate = new Date();
+                } else if (filter === 'last_week') {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+                    endDate = new Date(today);
+                    endDate.setDate(today.getDate() - dayOfWeek - 1);
+                    endDate.setHours(23, 59, 59, 999);
+                    startDate = new Date(endDate);
+                    startDate.setDate(endDate.getDate() - 6);
+                    startDate.setHours(0, 0, 0, 0);
+                } else if (filter === 'this_month') {
+                    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                } else if (filter === 'last_month') {
+                    startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+                } else if (filter === 'custom' && customDates.start && customDates.end) {
+                    startDate = new Date(customDates.start);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate = new Date(customDates.end);
+                    endDate.setHours(23, 59, 59, 999);
+                } else {
+                    // Default to this_month if range is invalid
+                    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                }
+                
+                return personSales.filter(sale => {
+                    const saleDate = new Date(sale.date);
+                    return saleDate >= startDate && saleDate <= endDate;
+                });
+            }, [personnel, allSales, filter, customDates]);
+
+            const stats = useMemo(() => ({
+                totalRevenue: filteredSales.reduce((s, a) => s + a.totalPrice, 0),
+                totalKDV: filteredSales.reduce((s, a) => s + (a.kdvTutari || 0), 0),
+                totalCommission: filteredSales.reduce((s, a) => s + a.personnelCommission, 0),
+                totalSalesCount: filteredSales.length
+            }), [filteredSales]);
+            
+            const FilterButton = ({ value, label }) => (
+                <button onClick={() => setFilter(value)} className={`px-3 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
+                    {label}
+                </button>
+            );
+
+            return (
+                <div className="space-y-6">
+                    <h2 className="text-2xl md:text-3xl font-bold text-gray-800 text-center">Boran Hesap</h2>
+                    <div className="bg-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-4">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <FilterButton value="this_week" label="Bu Hafta" />
+                            <FilterButton value="last_week" label="Geçen Hafta" />
+                            <FilterButton value="this_month" label="Bu Ay" />
+                            <FilterButton value="last_month" label="Geçen Ay" />
+                            <FilterButton value="all_time" label="Tümü" />
+                            <FilterButton value="custom" label="Özel" />
+                        </div>
+                        {filter === 'custom' && (
+                            <div className="flex flex-col sm:flex-row items-center gap-2 border-t sm:border-t-0 sm:border-l mt-2 pt-2 sm:mt-0 sm:pt-0 sm:pl-4">
+                                <Input type="date" value={customDates.start} onChange={e => setCustomDates(d => ({ ...d, start: e.target.value }))} />
+                                <Input type="date" value={customDates.end} onChange={e => setCustomDates(d => ({ ...d, end: e.target.value }))} />
+                            </div>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard title="Toplam Satış (Ciro)" value={formatCurrency(stats.totalRevenue)} icon={<Icon name="dollar-sign" className="text-white" />} color="bg-blue-500" />
+                        <StatCard title="Toplam KDV" value={formatCurrency(stats.totalKDV)} icon={<Icon name="percent" className="text-white" />} color="bg-red-500" />
+                        <StatCard title="Toplam Prim" value={formatCurrency(stats.totalCommission)} icon={<Icon name="award" className="text-white" />} color="bg-amber-500" />
+                        <StatCard title="Toplam İşlem" value={stats.totalSalesCount} icon={<Icon name="briefcase" className="text-white" />} color="bg-indigo-500" />
+                    </div>
+                    <DataTable 
+                        columns={[
+                            { key: 'date', header: 'Tarih', render: (date) => formatDate(date), sortable: true },
+                            { key: 'itemName', header: 'Ürün/Hizmet', sortable: true },
+                            { key: 'totalPrice', header: 'Tutar', render: (price) => formatCurrency(price), sortable: true },
+                            { key: 'netProfit', header: 'KEV', render: (profit) => formatCurrency(profit), sortable: true },
+                            { key: 'personnelCommission', header: 'Kazanılan Prim', render: (comm) => formatCurrency(comm), sortable: true }
+                        ]} 
+                        data={filteredSales} 
+                        hideActions 
+                    />
+                </div>
+            );
+        }
+
+        // --- Ana Sayfa Bileşeni ---
+        const BoranPerformancePage = () => {
+            const [boranData, setBoranData] = useState(null);
+            const [sales, setSales] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                const { onAuthStateChanged, signInAnonymously } = window.firebaseAuth;
+                const unsubscribe = onAuthStateChanged(auth, user => {
+                    if (user) {
+                        fetchData();
+                    } else {
+                        signInAnonymously(auth).catch(err => {
+                            console.error("Anonim oturum açılamadı:", err);
+                            setError("Verilere erişim için kimlik doğrulama başarısız oldu.");
+                            setIsLoading(false);
+                        });
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const fetchData = async () => {
+                const { collection, query, where, getDocs, onSnapshot } = window.firebaseFirestore;
+                setIsLoading(true);
+                setError(null);
+                try {
+                    // 1. Tüm personeli çek.
+                    const personnelSnapshot = await getDocs(collection(db, 'personnel'));
+
+                    // 2. Client tarafında büyük/küçük harf duyarsız olarak "boran"ı bul.
+                    const boranDoc = personnelSnapshot.docs.find(doc => doc.data().name.toLowerCase() === "boran");
+
+                    if (!boranDoc) {
+                        throw new Error("Veritabanında 'Boran' adında bir personel bulunamadı.");
+                    }
+
+                    const boran = { id: boranDoc.id, ...boranDoc.data() };
+                    setBoranData(boran);
+
+                    // 3. Bulunan personelin ID'si ile satışları getir.
+                    const salesQuery = query(collection(db, "sales"), where("personnelId", "==", boran.id));
+                    const unsubSales = onSnapshot(salesQuery, (snapshot) => {
+                        const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        salesData.sort((a, b) => new Date(b.date) - new Date(a.date));
+                        setSales(salesData);
+                        setIsLoading(false);
+                    }, (err) => {
+                        console.error("Satış verileri alınamadı:", err);
+                        setError("Satış verileri alınırken bir hata oluştu.");
+                        setIsLoading(false);
+                    });
+
+                    return () => unsubSales();
+                } catch (err) {
+                    console.error("Veri alınırken hata oluştu:", err);
+                    setError(err.message);
+                    setIsLoading(false);
+                }
+            };
+
+            if (isLoading) {
+                return (
+                    <div className="flex h-screen items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                            <p className="mt-4 text-lg text-gray-700">Veriler Yükleniyor...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div className="flex h-screen items-center justify-center p-4">
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg text-center">
+                            <strong className="font-bold">Hata!</strong>
+                            <span className="block sm:inline ml-2">{error}</span>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <main className="p-4 md:p-8">
+                    {boranData && <PersonnelDetailView personnel={boranData} allSales={sales} />}
+                </main>
+            );
+        };
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<BoranPerformancePage />);
+
+    </script>
+</body>
+</html>
