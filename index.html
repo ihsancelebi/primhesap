@@ -4,21 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mobil Uyumlu Satış Takip Paneli</title>
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel to transpile JSX in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Chart.js for charts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- XLSX for Excel Export/Import -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
-    <!-- Firebase Libraries (v11 Modular) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         window.firebaseApp = initializeApp;
@@ -437,6 +430,13 @@
         const App = () => {
             const [userId, setUserId] = useState(null); const [isAuthReady, setIsAuthReady] = useState(false); const [view, setView] = useState('dashboard'); const [sales, setSales] = useState([]); const [items, setItems] = useState([]); const [personnel, setPersonnel] = useState([]); const [isSaleModalOpen, setSaleModalOpen] = useState(false); const [isItemModalOpen, setItemModalOpen] = useState(false); const [isPersonnelModalOpen, setPersonnelModalOpen] = useState(false); const [isImportModalOpen, setImportModalOpen] = useState(false); const [editingSale, setEditingSale] = useState(null); const [editingItem, setEditingItem] = useState(null); const [editingPersonnel, setEditingPersonnel] = useState(null); const [selectedPersonnelId, setSelectedPersonnelId] = useState(null); const [usdToTryRate, setUsdToTryRate] = useState(null);
             const [isSidebarOpen, setSidebarOpen] = useState(false); // State for mobile sidebar
+            const [itemSearchTerm, setItemSearchTerm] = useState(''); // EKLENDI: Arama terimi için state
+
+            // EKLENDI: Arama terimine göre ürünleri/hizmetleri filtrele
+            const filteredItems = useMemo(() =>
+                items.filter(item =>
+                    item.name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+                ), [items, itemSearchTerm]);
 
             useEffect(() => { if (window.lucide) { lucide.createIcons(); } }, [view, isSaleModalOpen, isItemModalOpen, isPersonnelModalOpen, isImportModalOpen, isSidebarOpen, items, sales, personnel]);
             useEffect(() => { fetch('https://api.exchangerate-api.com/v4/latest/USD').then(response => response.json()).then(data => setUsdToTryRate(data.rates.TRY)).catch(error => { console.error(error); setUsdToTryRate(32.0); }); }, []);
@@ -482,7 +482,28 @@
                     case 'dashboard': return <Dashboard allSales={sales} personnel={personnel} />;
                     case 'sales': return <DataTable columns={[{ key: 'date', header: 'Tarih', render: formatDate, sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'personnelName', header: 'Personel', sortable: true }, { key: 'paymentMethod', header: 'Ödeme', render: paymentMethodRender, sortable: true }, { key: 'totalPrice', header: 'Tutar', render: formatCurrencyCell, sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: formatCurrencyCell, sortable: true }, { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }, { key: 'kdvTutari', header: 'KDV', render: (kdv) => kdv ? formatCurrencyCell(kdv) : '-', sortable: true }]} data={sales} onEdit={(item) => openModal('sale', item)} onDelete={(id) => handleDelete('sales', id)} onAddItem={() => openModal('sale')} addItemLabel="Yeni Satış Ekle" />;
                     case 'personnel': if (selectedPersonnelId) { const person = personnel.find(p => p.id === selectedPersonnelId); return <PersonnelDetailView personnel={person} allSales={sales} onBack={() => setSelectedPersonnelId(null)} />; } return <DataTable columns={[{ key: 'name', header: 'Personel Adı', sortable: true }]} data={personnel} onViewDetails={(id) => setSelectedPersonnelId(id)} onEdit={(item) => openModal('personnel', item)} onDelete={(id) => handleDelete('personnel', id)} onAddItem={() => openModal('personnel')} addItemLabel="Yeni Personel Ekle" />;
-                    case 'items': return <DataTable columns={[{ key: 'name', header: 'Adı', sortable: true }, { key: 'type', header: 'Tip', render: (t) => t === 'service' ? 'Hizmet' : 'Ürün', sortable: true }, { key: 'price', header: 'Satış Fiyatı', render: formatCurrencyCell, sortable: true }, { key: 'cost', header: 'Maliyet', render: costRender, sortable: true}, { key: 'commissionRateCash', header: 'Prim Oranı (%)', render: (r) => `${r}%`, sortable: true }]} data={items} onEdit={(item) => openModal('item', item)} onDelete={(id) => handleDelete('items', id)} onAddItem={() => openModal('item')} addItemLabel="Yeni Ürün/Hizmet" onImport={() => openModal('import')} />;
+                    // DEĞİŞTİRİLDİ: Arama kutusu eklendi ve tabloya filtrelenmiş veri gönderildi.
+                    case 'items': 
+                        return (
+                            <div className="space-y-6">
+                                <Input
+                                    label="Ürün/Hizmet Ara"
+                                    type="text"
+                                    placeholder="Aramak için yazın..."
+                                    value={itemSearchTerm}
+                                    onChange={(e) => setItemSearchTerm(e.target.value)}
+                                />
+                                <DataTable 
+                                    columns={[{ key: 'name', header: 'Adı', sortable: true }, { key: 'type', header: 'Tip', render: (t) => t === 'service' ? 'Hizmet' : 'Ürün', sortable: true }, { key: 'price', header: 'Satış Fiyatı', render: formatCurrencyCell, sortable: true }, { key: 'cost', header: 'Maliyet', render: costRender, sortable: true}, { key: 'commissionRateCash', header: 'Prim Oranı (%)', render: (r) => `${r}%`, sortable: true }]} 
+                                    data={filteredItems} 
+                                    onEdit={(item) => openModal('item', item)} 
+                                    onDelete={(id) => handleDelete('items', id)} 
+                                    onAddItem={() => openModal('item')} 
+                                    addItemLabel="Yeni Ürün/Hizmet" 
+                                    onImport={() => openModal('import')} 
+                                />
+                            </div>
+                        );
                     default: return <Dashboard allSales={sales} personnel={personnel} />;
                 }
             };
