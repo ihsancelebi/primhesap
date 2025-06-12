@@ -547,7 +547,53 @@
             }, [isAuthReady, userId]);
             
             const handleSave = async (collectionName, data, id) => { try { const { collection, doc, updateDoc, addDoc } = window.firebaseFirestore; if (id) await updateDoc(doc(db, collectionName, id), data); else await addDoc(collection(db, collectionName), data); } catch (e) { console.error(e); } setSaleModalOpen(false); setItemModalOpen(false); setPersonnelModalOpen(false); setEditingSale(null); setEditingItem(null); setEditingPersonnel(null); };
-            const handleBulkImport = async (importedItems) => { const { writeBatch, collection, doc } = window.firebaseFirestore; const batch = writeBatch(db); if (!importedItems || importedItems.length === 0) throw new Error("Dosya boş."); importedItems.forEach(item => { const price = parseFloat(item.price); const cost = parseFloat(item.cost); const cashRate = parseFloat(item.commissionRateCash); const newItem = { name: String(item.name || '').trim(), type: String(item.type || 'product').toLowerCase(), price: isNaN(price) ? 0 : price, cost: isNaN(cost) ? 0 : cost, costCurrency: ['TRY', 'USD'].includes(String(item.costCurrency || '').toUpperCase()) ? String(item.costCurrency).toUpperCase() : 'TRY', commissionRateCash: isNaN(cashRate) ? 0 : cashRate }; if (newItem.name) { const newDocRef = doc(collection(db, 'items')); batch.set(newDocRef, newItem); } }); try { await batch.commit(); } catch (e) { console.error(e); throw new Error("Yazma izni reddedildi. Firebase kurallarını kontrol edin."); } };
+            
+            const handleBulkImport = async (importedData) => {
+                const { writeBatch, collection, doc } = window.firebaseFirestore;
+                const batch = writeBatch(db);
+                if (!importedData || importedData.length === 0) throw new Error("Dosya boş.");
+
+                const existingItems = items; // Use current items from state
+
+                importedData.forEach(importedItem => {
+                    const name = String(importedItem.name || '').trim();
+                    const price = parseFloat(importedItem.price);
+
+                    if (!name || isNaN(price)) {
+                        console.warn("Geçersiz ürün atlanıyor:", importedItem);
+                        return; // Skips to the next item in the loop
+                    }
+
+                    // Check if an item with the same name and price already exists
+                    const isDuplicate = existingItems.some(existingItem => 
+                        existingItem.name.toLowerCase() === name.toLowerCase() && 
+                        existingItem.price === price
+                    );
+                    
+                    if (!isDuplicate) {
+                        const cost = parseFloat(importedItem.cost);
+                        const cashRate = parseFloat(importedItem.commissionRateCash);
+                        const newItem = {
+                            name: name,
+                            type: String(importedItem.type || 'product').toLowerCase(),
+                            price: price,
+                            cost: isNaN(cost) ? 0 : cost,
+                            costCurrency: ['TRY', 'USD'].includes(String(importedItem.costCurrency || '').toUpperCase()) ? String(importedItem.costCurrency).toUpperCase() : 'TRY',
+                            commissionRateCash: isNaN(cashRate) ? 0 : cashRate,
+                        };
+                        const newDocRef = doc(collection(db, 'items'));
+                        batch.set(newDocRef, newItem);
+                    }
+                });
+
+                try {
+                    await batch.commit();
+                } catch (e) {
+                    console.error("Toplu içe aktarma sırasında hata:", e);
+                    throw new Error("Yazma izni reddedildi veya başka bir hata oluştu. Firebase kurallarını kontrol edin.");
+                }
+            };
+
             const handleDelete = async (collectionName, id) => { if (window.confirm("Bu kaydı silmek istediğinizden emin misiniz?")) { try { await window.firebaseFirestore.deleteDoc(window.firebaseFirestore.doc(db, collectionName, id)); } catch (e) { console.error(e); } } };
             const openModal = (type, item = null) => { switch (type) { case 'sale': setEditingSale(item); setSaleModalOpen(true); break; case 'item': setEditingItem(item); setItemModalOpen(true); break; case 'personnel': setEditingPersonnel(item); setPersonnelModalOpen(true); break; case 'import': setImportModalOpen(true); break; } };
             const handleViewChange = (newView) => {
@@ -695,4 +741,4 @@
 
     </script>
 </body>
-</html>
+</ht
