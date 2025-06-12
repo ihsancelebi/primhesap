@@ -50,7 +50,6 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         // --- Firebase Configuration ---
-        // Lütfen kendi Firebase yapılandırma bilgilerinizi buraya girin.
         const firebaseConfig = {
             apiKey: "AIzaSyBcxenhaF6c9RMaRwoXeA1tuxxS-a1sA5k",
             authDomain: "pirimhesap-eb53b.firebaseapp.com",
@@ -140,82 +139,174 @@
         const SaleForm = ({ sale, items, personnel, onSave, onCancel, usdToTryRate }) => {
             const [searchTerm, setSearchTerm] = useState('');
             const [isSuggestionsVisible, setIsSuggestionsVisible] = useState(false);
-            const [formData, setFormData] = useState({ personnelId: sale?.personnelId || '', itemId: sale?.itemId || '', quantity: sale?.quantity || 1, date: sale?.date || new Date().toISOString().split('T')[0], paymentMethod: sale?.paymentMethod || 'credit_card', price: sale?.price || '' });
-            
-            const filteredItems = useMemo(() => items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())), [items, searchTerm]);
-            
+            const [formData, setFormData] = useState({
+                personnelId: '',
+                itemId: '',
+                quantity: 1,
+                date: new Date().toISOString().split('T')[0],
+                paymentMethod: 'credit_card',
+                unitPrice: ''
+            });
+            const [totalPrice, setTotalPrice] = useState('');
+
+            // Initialize form for editing
             useEffect(() => {
-                if (sale && sale.itemId) {
+                if (sale) {
                     const selectedItem = items.find(i => i.id === sale.itemId);
-                    if (selectedItem) setSearchTerm(selectedItem.name);
+                    setSearchTerm(selectedItem?.name || '');
+                    setFormData({
+                        personnelId: sale.personnelId || '',
+                        itemId: sale.itemId || '',
+                        quantity: sale.quantity || 1,
+                        date: toInputDate(sale.date) || new Date().toISOString().split('T')[0],
+                        paymentMethod: sale.paymentMethod || 'credit_card',
+                        unitPrice: sale.price || '',
+                    });
+                    setTotalPrice(sale.totalPrice || '');
+                } else {
+                    // Reset for new sale
+                     setFormData({
+                        personnelId: '',
+                        itemId: '',
+                        quantity: 1,
+                        date: new Date().toISOString().split('T')[0],
+                        paymentMethod: 'credit_card',
+                        unitPrice: ''
+                    });
+                    setTotalPrice('');
+                    setSearchTerm('');
                 }
             }, [sale, items]);
-            
-            useEffect(() => { 
-                if (formData.itemId) { 
-                    const selectedItem = items.find(i => i.id === formData.itemId); 
-                    if (selectedItem && sale?.itemId !== formData.itemId) { 
-                        setFormData(prev => ({ ...prev, price: selectedItem.price })); 
-                    } 
-                } 
-            }, [formData.itemId, items]);
 
-            const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+            // Auto-calculate total price when unit price or quantity changes
+            useEffect(() => {
+                const unitPrice = parseFloat(formData.unitPrice);
+                const quantity = parseInt(formData.quantity, 10);
+                if (!isNaN(unitPrice) && !isNaN(quantity)) {
+                    setTotalPrice((unitPrice * quantity).toFixed(2));
+                }
+            }, [formData.unitPrice, formData.quantity]);
+
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleTotalPriceChange = (e) => {
+                setTotalPrice(e.target.value);
+            };
+
             const handleSearchChange = (e) => {
                 const value = e.target.value;
                 setSearchTerm(value);
-                setFormData(prev => ({ ...prev, itemId: '' }));
+                setFormData(prev => ({ ...prev, itemId: '', unitPrice: '' }));
                 setIsSuggestionsVisible(true);
             };
+
             const handleSuggestionClick = (item) => {
-                setFormData(prev => ({ ...prev, itemId: item.id }));
+                setFormData(prev => ({
+                    ...prev,
+                    itemId: item.id,
+                    unitPrice: item.price
+                }));
                 setSearchTerm(item.name);
                 setIsSuggestionsVisible(false);
             };
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                const selectedItem = items.find(i => i.id === formData.itemId); const selectedPersonnel = personnel.find(p => p.id === formData.personnelId); if (!selectedItem || !selectedPersonnel || !usdToTryRate) { alert("Lütfen personel ve ürün/hizmet seçtiğinizden emin olun."); return; }
-                const quantity = parseInt(formData.quantity, 10); const salePrice = parseFloat(formData.price); const totalPrice = salePrice * quantity;
-                
+                const selectedItem = items.find(i => i.id === formData.itemId);
+                const selectedPersonnel = personnel.find(p => p.id === formData.personnelId);
+                if (!selectedItem || !selectedPersonnel || !usdToTryRate) {
+                    alert("Lütfen personel ve ürün/hizmet seçtiğinizden emin olun.");
+                    return;
+                }
+
+                const quantity = parseInt(formData.quantity, 10);
+                const finalTotalPrice = parseFloat(totalPrice);
+                if (isNaN(quantity) || isNaN(finalTotalPrice)) {
+                    alert("Lütfen geçerli adet ve tutar girin.");
+                    return;
+                }
+                const finalUnitPrice = finalTotalPrice / quantity;
+
                 let itemCostInTry;
                 if (selectedItem.costType === 'percentage') {
-                    itemCostInTry = salePrice * (selectedItem.cost / 100);
+                    itemCostInTry = finalUnitPrice * (selectedItem.cost / 100);
                 } else {
-                    itemCostInTry = selectedItem.cost; 
-                    if (selectedItem.costCurrency === 'USD') { 
-                        itemCostInTry = selectedItem.cost * usdToTryRate; 
+                    itemCostInTry = selectedItem.cost;
+                    if (selectedItem.costCurrency === 'USD') {
+                        itemCostInTry = selectedItem.cost * usdToTryRate;
                     }
                 }
 
                 let totalCost = itemCostInTry * quantity;
                 let kdvTutari = 0;
-                if (formData.paymentMethod === 'credit_card') { 
-                    const creditCardCost = totalPrice * 0.22; 
+                if (formData.paymentMethod === 'credit_card') {
+                    const creditCardCost = finalTotalPrice * 0.22;
                     totalCost += creditCardCost;
-                    kdvTutari = totalPrice * 0.20;
+                    kdvTutari = finalTotalPrice * 0.20;
                 }
-                const netProfit = totalPrice - totalCost; const commissionRate = selectedItem.commissionRateCash;
+                const netProfit = finalTotalPrice - totalCost;
+                const commissionRate = selectedItem.commissionRateCash;
                 const personnelCommission = netProfit * (commissionRate / 100);
-                onSave({ ...formData, quantity, totalPrice, totalCost, netProfit, kdvTutari, personnelCommission, itemName: selectedItem.name, personnelName: selectedPersonnel.name });
+
+                onSave({
+                    ...formData,
+                    price: finalUnitPrice, // Save the recalculated unit price
+                    quantity,
+                    totalPrice: finalTotalPrice,
+                    totalCost,
+                    netProfit,
+                    kdvTutari,
+                    personnelCommission,
+                    itemName: selectedItem.name,
+                    personnelName: selectedPersonnel.name
+                });
             };
+            
+            const filteredItems = useMemo(() => searchTerm ? items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())) : [], [items, searchTerm]);
 
             return (
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <Select label="Personel" name="personnelId" value={formData.personnelId} onChange={handleChange} required><option value="">Personel Seçin</option>{personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
+                    <Select label="Personel" name="personnelId" value={formData.personnelId} onChange={handleChange} required>
+                        <option value="">Personel Seçin</option>
+                        {personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </Select>
+                    
                     <div className="relative">
-                        <Input label="Ürün/Hizmet Ara" type="text" value={searchTerm} onChange={handleSearchChange} onBlur={() => setTimeout(() => setIsSuggestionsVisible(false), 200)} onFocus={handleSearchChange} placeholder="Aramak için yazın..." />
+                        <Input label="Ürün/Hizmet Ara" type="text" value={searchTerm} onChange={handleSearchChange} onBlur={() => setTimeout(() => setIsSuggestionsVisible(false), 200)} onFocus={handleSearchChange} placeholder="Aramak için yazın..." required/>
                         {isSuggestionsVisible && filteredItems.length > 0 && (
                             <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-b-lg -mt-1 max-h-60 overflow-y-auto shadow-lg">
-                                {filteredItems.map(item => (<li key={item.id} className="px-4 py-2 cursor-pointer hover:bg-gray-100" onMouseDown={() => handleSuggestionClick(item)}>{item.name} <span className="text-sm text-gray-500">({formatCurrency(item.price)})</span></li>))}
+                                {filteredItems.map(item => (
+                                    <li key={item.id} className="px-4 py-2 cursor-pointer hover:bg-gray-100" onMouseDown={() => handleSuggestionClick(item)}>
+                                        {item.name} <span className="text-sm text-gray-500">({formatCurrency(item.price)})</span>
+                                    </li>
+                                ))}
                             </ul>
                         )}
                     </div>
-                    <Input label="Satış Fiyatı (Birim)" name="price" type="number" step="0.01" min="0" value={formData.price} onChange={handleChange} required />
-                    <Select label="Ödeme Yöntemi" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} required><option value="credit_card">Kredi Kartı</option><option value="cash">Nakit</option></Select>
-                    <Input label="Adet" name="quantity" type="number" min="1" value={formData.quantity} onChange={handleChange} required />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         <Input label="Birim Fiyatı (TRY)" name="unitPrice" type="number" step="0.01" min="0" value={formData.unitPrice} onChange={handleChange} required />
+                         <Input label="Adet" name="quantity" type="number" min="1" value={formData.quantity} onChange={handleChange} required />
+                    </div>
+
+                    <Input label="Toplam Tutar (TRY)" name="totalPrice" type="number" step="0.01" min="0" value={totalPrice} onChange={handleTotalPriceChange} required />
+
+                    <Select label="Ödeme Yöntemi" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} required>
+                        <option value="credit_card">Kredi Kartı</option>
+                        <option value="cash">Nakit</option>
+                    </Select>
+                    
                     <Input label="Tarih" name="date" type="date" value={formData.date} onChange={handleChange} required />
-                    <div className="flex justify-end space-x-3 pt-4"><Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button><Button type="submit" disabled={!usdToTryRate || !formData.itemId}>{!usdToTryRate ? 'Kur bilgisi bekleniyor...' : 'Kaydet'}</Button></div>
+                    
+                    <div className="flex justify-end space-x-3 pt-4">
+                        <Button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800">İptal</Button>
+                        <Button type="submit" disabled={!usdToTryRate || !formData.itemId}>{!usdToTryRate ? 'Kur bilgisi bekleniyor...' : 'Kaydet'}</Button>
+                    </div>
                 </form>
             );
         };
@@ -578,7 +669,7 @@
                                 <Icon name="menu" size={24} />
                             </button>
                             <h2 className="font-bold text-lg text-blue-600">
-                                {view.charAt(0).toUpperCase() + view.slice(1)}
+                                {view === 'personnel' && selectedPersonnelId ? 'Personel Detayı' : view.charAt(0).toUpperCase() + view.slice(1)}
                             </h2>
                             <div className="w-6"></div> {/* Spacer */}
                         </header>
@@ -589,7 +680,9 @@
 
                     {/* Modals */}
                     <ExcelImportModal isOpen={isImportModalOpen} onClose={() => setImportModalOpen(false)} onImport={handleBulkImport} />
-                    <Modal isOpen={isSaleModalOpen} onClose={() => setSaleModalOpen(false)} title={editingSale ? "Satış Düzenle" : "Yeni Satış Ekle"}><SaleForm sale={editingSale} items={items} personnel={personnel} onSave={(data) => handleSave('sales', data, editingSale?.id)} onCancel={() => { setSaleModalOpen(false); setEditingSale(null); }} usdToTryRate={usdToTryRate} /></Modal>
+                    <Modal isOpen={isSaleModalOpen} onClose={() => { setSaleModalOpen(false); setEditingSale(null); }} title={editingSale ? "Satış Düzenle" : "Yeni Satış Ekle"}>
+                        <SaleForm sale={editingSale} items={items} personnel={personnel} onSave={(data) => handleSave('sales', data, editingSale?.id)} onCancel={() => { setSaleModalOpen(false); setEditingSale(null); }} usdToTryRate={usdToTryRate} />
+                    </Modal>
                     <Modal isOpen={isItemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Düzenle" : "Yeni Ürün/Hizmet Ekle"}><ItemForm item={editingItem} onSave={(data) => handleSave('items', data, editingItem?.id)} onCancel={() => { setItemModalOpen(false); setEditingItem(null); }} /></Modal>
                     <Modal isOpen={isPersonnelModalOpen} onClose={() => setPersonnelModalOpen(false)} title={editingPersonnel ? "Personel Düzenle" : "Yeni Personel Ekle"}><PersonnelForm person={editingPersonnel} onSave={(data) => handleSave('personnel', data, editingPersonnel?.id)} onCancel={() => { setEditingPersonnel(null); setPersonnelModalOpen(false);}} /></Modal>
                 </div>
