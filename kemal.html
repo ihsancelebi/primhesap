@@ -47,10 +47,9 @@
             apiKey: "AIzaSyBcxenhaF6c9RMaRwoXeA1tuxxS-a1sA5k",
             authDomain: "pirimhesap-eb53b.firebaseapp.com",
             projectId: "pirimhesap-eb53b",
-            storageBucket: "pirimhesap-eb53b.firebasestorage.app",
+            storageBucket: "pirimhesap-eb53b.appspot.com",
             messagingSenderId: "842754627809",
-            appId: "1:842754627809:web:ba796f62c3a894ef29bfa0",
-            measurementId: "G-B0V9ZSYDZQ"
+            appId: "1:842754627809:web:ba796f62c3a894ef29bfa0"
         };
         
         // --- Firebase Initialization ---
@@ -193,9 +192,11 @@
                 } else if (filter === 'this_month') {
                     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
                     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    endDate.setHours(23, 59, 59, 999); // **FIXED**
                 } else if (filter === 'last_month') {
                     startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
                     endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+                    endDate.setHours(23, 59, 59, 999); // **FIXED**
                 } else if (filter === 'custom' && customDates.start && customDates.end) {
                     startDate = new Date(customDates.start);
                     startDate.setHours(0, 0, 0, 0);
@@ -205,6 +206,7 @@
                     // Default to this_month if range is invalid
                     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
                     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    endDate.setHours(23, 59, 59, 999);
                 }
                 
                 return personSales.filter(sale => {
