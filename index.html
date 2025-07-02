@@ -225,16 +225,18 @@
                 }
                 const finalUnitPrice = finalTotalPrice / quantity;
 
-                // --- NEW CALCULATION LOGIC ---
+                // --- ROBUST CALCULATION LOGIC ---
 
                 // 1. Calculate the base cost of the item in TRY
+                const costValue = parseFloat(selectedItem.cost) || 0; // **FIX**: Ensure cost is a number, default to 0.
+                
                 let itemCostInTry;
                 if (selectedItem.costType === 'percentage') {
-                    itemCostInTry = finalUnitPrice * (selectedItem.cost / 100);
+                    itemCostInTry = finalUnitPrice * (costValue / 100);
                 } else { // Fixed cost
-                    itemCostInTry = selectedItem.cost;
+                    itemCostInTry = costValue;
                     if (selectedItem.costCurrency === 'USD') {
-                        itemCostInTry = selectedItem.cost * usdToTryRate;
+                        itemCostInTry = costValue * usdToTryRate;
                     }
                 }
                 const baseItemCost = itemCostInTry * quantity;
@@ -242,7 +244,6 @@
                 // 2. Calculate KDV (VAT) - only for credit card sales
                 let kdvTutari = 0;
                 if (formData.paymentMethod === 'credit_card') {
-                    // Assuming 20% VAT on the final price for official (credit card) transactions
                     kdvTutari = finalTotalPrice * 0.20;
                 }
 
@@ -250,7 +251,7 @@
                 const commissionableAmount = finalTotalPrice - baseItemCost - kdvTutari;
                 
                 // 4. Calculate personnel commission
-                const commissionRate = selectedItem.commissionRateCash; // e.g., 12 for 12%
+                const commissionRate = selectedItem.commissionRateCash;
                 const personnelCommission = commissionableAmount > 0 ? commissionableAmount * (commissionRate / 100) : 0;
 
                 // 5. Calculate total cost and net profit for the business
@@ -262,9 +263,9 @@
                     price: finalUnitPrice,
                     quantity,
                     totalPrice: finalTotalPrice,
-                    baseItemCost: baseItemCost, // Save the base item cost separately
-                    totalCost: totalCost, // This is the total expense for the business
-                    netProfit: netProfit, // Business's final profit
+                    baseItemCost: baseItemCost,
+                    totalCost: totalCost,
+                    netProfit: netProfit,
                     kdvTutari: kdvTutari,
                     personnelCommission: personnelCommission,
                     itemName: selectedItem.name,
@@ -332,7 +333,17 @@
             
             const handleSubmit = (e) => { 
                 e.preventDefault(); 
-                onSave({ ...formData, price: parseFloat(formData.price), cost: parseFloat(formData.cost), commissionRateCash: parseFloat(formData.commissionRateCash) }); 
+                // **FIX**: Add validation to prevent saving non-numeric cost
+                const finalPrice = parseFloat(formData.price);
+                const finalCost = parseFloat(formData.cost);
+                const finalCommission = parseFloat(formData.commissionRateCash);
+
+                if (isNaN(finalPrice) || isNaN(finalCost) || isNaN(finalCommission)) {
+                    alert("Lütfen Fiyat, Maliyet ve Prim Oranı için geçerli sayısal değerler girin.");
+                    return;
+                }
+
+                onSave({ ...formData, price: finalPrice, cost: finalCost, commissionRateCash: finalCommission }); 
             }; 
             
             return (
@@ -586,7 +597,7 @@
                 const ws = XLSX.utils.json_to_sheet(dataToExport);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'Satışlar');
-                XLSX.writeFile(wb, `Satis_Raporu_${new Date().toLocaleDateString('tr-TR')}.xlsx`);
+                XLSX.writeFile(wb, `Satis_Raporu_${new Date().toLocaleDateString('tr-TR').replace(/\./g, '-')}.xlsx`);
             };
 
             const FilterButton = ({ value, label }) => (<button onClick={() => setFilter(value)} className={`px-3 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>{label}</button>);
@@ -697,6 +708,7 @@
                             price: price,
                             cost: isNaN(cost) ? 0 : cost,
                             costCurrency: ['TRY', 'USD'].includes(String(importedItem.costCurrency || '').toUpperCase()) ? String(importedItem.costCurrency).toUpperCase() : 'TRY',
+                            costType: ['fixed', 'percentage'].includes(String(importedItem.costType || '').toLowerCase()) ? String(importedItem.costType).toLowerCase() : 'fixed',
                             commissionRateCash: isNaN(cashRate) ? 0 : cashRate,
                         };
                         const newDocRef = doc(collection(db, 'items'));
