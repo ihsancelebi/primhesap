@@ -142,7 +142,6 @@
             });
             const [totalPrice, setTotalPrice] = useState('');
 
-            // Initialize form for editing
             useEffect(() => {
                 if (sale) {
                     const selectedItem = items.find(i => i.id === sale.itemId);
@@ -157,7 +156,6 @@
                     });
                     setTotalPrice(sale.totalPrice || '');
                 } else {
-                    // Reset for new sale
                      setFormData({
                         personnelId: '',
                         itemId: '',
@@ -171,8 +169,6 @@
                 }
             }, [sale, items]);
 
-
-            // Auto-calculate total price when unit price or quantity changes
             useEffect(() => {
                 const unitPrice = parseFloat(formData.unitPrice);
                 const quantity = parseInt(formData.quantity, 10);
@@ -225,15 +221,12 @@
                 }
                 const finalUnitPrice = finalTotalPrice / quantity;
 
-                // --- ROBUST CALCULATION LOGIC ---
-
-                // 1. Calculate the base cost of the item in TRY
-                const costValue = parseFloat(selectedItem.cost) || 0; // **FIX**: Ensure cost is a number, default to 0.
+                const costValue = parseFloat(selectedItem.cost) || 0; 
                 
                 let itemCostInTry;
                 if (selectedItem.costType === 'percentage') {
                     itemCostInTry = finalUnitPrice * (costValue / 100);
-                } else { // Fixed cost
+                } else {
                     itemCostInTry = costValue;
                     if (selectedItem.costCurrency === 'USD') {
                         itemCostInTry = costValue * usdToTryRate;
@@ -241,20 +234,14 @@
                 }
                 const baseItemCost = itemCostInTry * quantity;
 
-                // 2. Calculate KDV (VAT) - only for credit card sales
                 let kdvTutari = 0;
                 if (formData.paymentMethod === 'credit_card') {
                     kdvTutari = finalTotalPrice * 0.20;
                 }
 
-                // 3. Calculate the amount on which commission is based
                 const commissionableAmount = finalTotalPrice - baseItemCost - kdvTutari;
-                
-                // 4. Calculate personnel commission
                 const commissionRate = selectedItem.commissionRateCash;
                 const personnelCommission = commissionableAmount > 0 ? commissionableAmount * (commissionRate / 100) : 0;
-
-                // 5. Calculate total cost and net profit for the business
                 const totalCost = baseItemCost + personnelCommission + kdvTutari;
                 const netProfit = finalTotalPrice - totalCost;
 
@@ -333,7 +320,6 @@
             
             const handleSubmit = (e) => { 
                 e.preventDefault(); 
-                // **FIX**: Add validation to prevent saving non-numeric cost
                 const finalPrice = parseFloat(formData.price);
                 const finalCost = parseFloat(formData.cost);
                 const finalCommission = parseFloat(formData.commissionRateCash);
@@ -577,6 +563,16 @@
                 });
             }, [allSales, filter, customDates]);
 
+            const totals = useMemo(() => {
+                return filteredSales.reduce((acc, sale) => {
+                    acc.totalPrice += sale.totalPrice || 0;
+                    acc.baseItemCost += sale.baseItemCost || 0;
+                    acc.kdvTutari += sale.kdvTutari || 0;
+                    acc.personnelCommission += sale.personnelCommission || 0;
+                    return acc;
+                }, { totalPrice: 0, baseItemCost: 0, kdvTutari: 0, personnelCommission: 0 });
+            }, [filteredSales]);
+
             const handleExportSales = () => {
                 if (typeof XLSX === 'undefined') {
                     alert('Excel export library is not available.');
@@ -626,7 +622,8 @@
                             { key: 'kdvTutari', header: 'KDV', render: (kdv) => kdv ? formatCurrencyCell(kdv) : '-', sortable: true },
                             { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }
                         ]} 
-                        data={filteredSales} 
+                        data={filteredSales}
+                        totals={totals}
                         onEdit={onEdit} 
                         onDelete={onDelete} 
                         onAddItem={onAddItem}
@@ -636,11 +633,11 @@
                 </div>
             );
         };
-        const DataTable = ({ columns, data, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, onExport, hideActions = false }) => {
+        const DataTable = ({ columns, data, totals, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, onExport, hideActions = false }) => {
             const [sortConfig, setSortConfig] = useState(null);
             const sortedData = useMemo(() => { let sortableItems = [...data]; if (sortConfig !== null) { sortableItems.sort((a, b) => { const valA = a[sortConfig.key] || 0; const valB = b[sortConfig.key] || 0; if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1; return 0; }); } return sortableItems; }, [data, sortConfig]);
             const requestSort = (key) => { let direction = 'ascending'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') { direction = 'descending'; } setSortConfig({ key, direction }); };
-            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onExport && (<Button onClick={onExport} className="bg-teal-600 hover:bg-teal-700 text-white"><Icon name="download" size={18}/><span>Excel'e Aktar</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody></table></div>{sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}</div>);
+            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onExport && (<Button onClick={onExport} className="bg-teal-600 hover:bg-teal-700 text-white"><Icon name="download" size={18}/><span>Excel'e Aktar</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody>{totals && (<tfoot><tr className="border-t-2 border-gray-300 bg-gray-50 font-bold text-gray-800">{columns.map((col, index) => { const totalValue = totals[col.key]; let content = null; if (index === 0) { content = "Toplam:"; } else if (totalValue !== undefined) { content = col.render ? col.render(totalValue) : totalValue; } return <td key={`total-${col.key}`} className="p-2 md:p-4 whitespace-nowrap">{content}</td>; })}{!hideActions && <td></td>}</tr></tfoot>)}{sortedData.length === 0 && <tbody><tr><td colSpan={columns.length + (hideActions ? 0 : 1)}><p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p></td></tr></tbody>}</table></div></div>);
         };
 
         // --- App Component (Main Logic) ---
@@ -682,7 +679,7 @@
                 const batch = writeBatch(db);
                 if (!importedData || importedData.length === 0) throw new Error("Dosya boş.");
 
-                const existingItems = items; // Use current items from state
+                const existingItems = items;
 
                 importedData.forEach(importedItem => {
                     const name = String(importedItem.name || '').trim();
@@ -690,10 +687,9 @@
 
                     if (!name || isNaN(price)) {
                         console.warn("Geçersiz ürün atlanıyor:", importedItem);
-                        return; // Skips to the next item in the loop
+                        return;
                     }
 
-                    // Check if an item with the same name and price already exists
                     const isDuplicate = existingItems.some(existingItem => 
                         existingItem.name.toLowerCase() === name.toLowerCase() && 
                         existingItem.price === price
@@ -799,7 +795,6 @@
                         <div>
                                 <div className="relative flex justify-center mb-6">
                                     <div className="flex flex-col items-center">
-                                        {/* Logo SVG */}
                                         <svg xmlns="http://www.w3.org/2000/svg" xmlSpace="preserve" width="162" height="162" version="1.1" 
                                             style={{shapeRendering:'geometricPrecision', textRendering:'geometricPrecision', imageRendering:'optimizeQuality', fillRule:'evenodd', clipRule:'evenodd'}}
                                             viewBox="0 0 29700 17000"
