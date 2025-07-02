@@ -219,31 +219,34 @@
                     alert("Lütfen geçerli adet ve tutar girin.");
                     return;
                 }
-                const finalUnitPrice = finalTotalPrice / quantity;
 
-                const costValue = parseFloat(selectedItem.cost) || 0; 
+                // **FIX**: Helper function for precise rounding to two decimal places
+                const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+                const finalUnitPrice = roundToTwo(finalTotalPrice / quantity);
+                const costValue = parseFloat(selectedItem.cost) || 0;
                 
                 let itemCostInTry;
                 if (selectedItem.costType === 'percentage') {
-                    itemCostInTry = finalUnitPrice * (costValue / 100);
+                    itemCostInTry = roundToTwo(finalUnitPrice * (costValue / 100));
                 } else {
                     itemCostInTry = costValue;
                     if (selectedItem.costCurrency === 'USD') {
-                        itemCostInTry = costValue * usdToTryRate;
+                        itemCostInTry = roundToTwo(costValue * usdToTryRate);
                     }
                 }
-                const baseItemCost = itemCostInTry * quantity;
+                const baseItemCost = roundToTwo(itemCostInTry * quantity);
 
                 let kdvTutari = 0;
                 if (formData.paymentMethod === 'credit_card') {
-                    kdvTutari = finalTotalPrice * 0.20;
+                    kdvTutari = roundToTwo(finalTotalPrice * 0.20);
                 }
 
-                const commissionableAmount = finalTotalPrice - baseItemCost - kdvTutari;
-                const commissionRate = selectedItem.commissionRateCash;
-                const personnelCommission = commissionableAmount > 0 ? commissionableAmount * (commissionRate / 100) : 0;
-                const totalCost = baseItemCost + personnelCommission + kdvTutari;
-                const netProfit = finalTotalPrice - totalCost;
+                const commissionableAmount = roundToTwo(finalTotalPrice - baseItemCost - kdvTutari);
+                const commissionRate = parseFloat(selectedItem.commissionRateCash) || 0;
+                const personnelCommission = commissionableAmount > 0 ? roundToTwo(commissionableAmount * (commissionRate / 100)) : 0;
+                const totalCost = roundToTwo(baseItemCost + personnelCommission + kdvTutari);
+                const netProfit = roundToTwo(finalTotalPrice - totalCost);
 
                 onSave({
                     ...formData,
@@ -637,7 +640,7 @@
             const [sortConfig, setSortConfig] = useState(null);
             const sortedData = useMemo(() => { let sortableItems = [...data]; if (sortConfig !== null) { sortableItems.sort((a, b) => { const valA = a[sortConfig.key] || 0; const valB = b[sortConfig.key] || 0; if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1; return 0; }); } return sortableItems; }, [data, sortConfig]);
             const requestSort = (key) => { let direction = 'ascending'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') { direction = 'descending'; } setSortConfig({ key, direction }); };
-            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onExport && (<Button onClick={onExport} className="bg-teal-600 hover:bg-teal-700 text-white"><Icon name="download" size={18}/><span>Excel'e Aktar</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody>{totals && (<tfoot><tr className="border-t-2 border-gray-300 bg-gray-50 font-bold text-gray-800">{columns.map((col, index) => { const totalValue = totals[col.key]; let content = null; if (index === 0) { content = "Toplam:"; } else if (totalValue !== undefined) { content = col.render ? col.render(totalValue) : totalValue; } return <td key={`total-${col.key}`} className="p-2 md:p-4 whitespace-nowrap">{content}</td>; })}{!hideActions && <td></td>}</tr></tfoot>)}{sortedData.length === 0 && <tbody><tr><td colSpan={columns.length + (hideActions ? 0 : 1)}><p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p></td></tr></tbody>}</table></div></div>);
+            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onExport && (<Button onClick={onExport} className="bg-teal-600 hover:bg-teal-700 text-white"><Icon name="download" size={18}/><span>Excel'e Aktar</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody>{totals && sortedData.length > 0 && (<tfoot><tr className="border-t-2 border-gray-300 bg-gray-50 font-bold text-gray-800">{columns.map((col, index) => { const totalValue = totals[col.key]; let content = null; if (index === 0) { content = "Toplam:"; } else if (totalValue !== undefined) { content = col.render ? col.render(totalValue) : totalValue; } return <td key={`total-${col.key}`} className="p-2 md:p-4 whitespace-nowrap">{content}</td>; })}{!hideActions && <td></td>}</tr></tfoot>)}</table></div>{sortedData.length === 0 && <div className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</div>}</div>);
         };
 
         // --- App Component (Main Logic) ---
