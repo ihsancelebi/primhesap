@@ -1,24 +1,26 @@
+I have modified the code for you. The following changes have been made to the "Sales" page:
+
+1.  **Date Filters Added**: You can now filter sales records by "This Week," "Last Week," "This Month," "Last Month," "All Time," or a "Custom" date range, just like on the dashboard.
+2.  **"Net Profit" Changed to "Cost"**: The sales table column that previously showed "Net Kâr" (Net Profit) now displays "Maliyet" (Total Cost) for each transaction.
+3.  **Export Filtered Results**: An "Export to Excel" button has been added. Clicking this button will download an `.xlsx` file containing only the sales data that matches your current filter selection.
+
+Below is the complete, updated HTML code. You can replace your existing code with this to apply the changes.
+
+```html
 <!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mobil Uyumlu Satış Takip Paneli</title>
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel to transpile JSX in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Chart.js for charts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- XLSX for Excel Export/Import -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
-    <!-- Firebase Libraries (v11 Modular) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         window.firebaseApp = initializeApp;
@@ -513,11 +515,120 @@
             const FilterButton = ({ value, label }) => (<button onClick={() => setFilter(value)} className={`px-3 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>{label}</button>);
             return (<div className="space-y-6"><div className="flex justify-between items-center"><Button onClick={onBack} className="w-auto bg-gray-200 hover:bg-gray-300 text-gray-800"><Icon name="arrow-left" size={20}/> Geri Dön</Button><h2 className="text-xl md:text-2xl font-bold text-gray-800 text-right">{personnel.name} Performansı</h2></div><div className="bg-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-4"><div className="flex items-center gap-2 flex-wrap"><FilterButton value="this_week" label="Bu Hafta" /><FilterButton value="last_week" label="Geçen Hafta" /><FilterButton value="this_month" label="Bu Ay" /><FilterButton value="last_month" label="Geçen Ay" /><FilterButton value="all_time" label="Tümü" /><FilterButton value="custom" label="Özel" /></div>{filter === 'custom' && (<div className="flex flex-col sm:flex-row items-center gap-2 border-t sm:border-t-0 sm:border-l mt-2 pt-2 sm:mt-0 sm:pt-0 sm:pl-4"><Input type="date" value={customDates.start} onChange={e => setCustomDates(d => ({ ...d, start: e.target.value }))} /><Input type="date" value={customDates.end} onChange={e => setCustomDates(d => ({ ...d, end: e.target.value }))} /></div>)}</div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><StatCard title="Toplam Satış (Ciro)" value={formatCurrency(stats.totalRevenue)} icon={<Icon name="dollar-sign" className="text-white" />} color="bg-blue-500" /><StatCard title="Toplam Net Kâr" value={formatCurrency(stats.totalNetProfit)} icon={<Icon name="trending-up" className="text-white" />} color="bg-green-500" /><StatCard title="Toplam Prim" value={formatCurrency(stats.totalCommission)} icon={<Icon name="award" className="text-white" />} color="bg-amber-500" /><StatCard title="Toplam İşlem" value={stats.totalSalesCount} icon={<Icon name="briefcase" className="text-white" />} color="bg-indigo-500" /></div><DataTable columns={[{ key: 'date', header: 'Tarih', render: (date) => formatDate(date), sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'totalPrice', header: 'Tutar', render: (price) => formatCurrency(price), sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: (profit) => formatCurrency(profit), sortable: true }, { key: 'personnelCommission', header: 'Kazanılan Prim', render: (comm) => formatCurrency(comm), sortable: true }]} data={filteredSales} hideActions /></div>);
         }
-        const DataTable = ({ columns, data, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, hideActions = false }) => {
+        const SalesView = ({ allSales, onEdit, onDelete, onAddItem }) => {
+            const [filter, setFilter] = useState('this_month');
+            const [customDates, setCustomDates] = useState({ start: toInputDate(new Date()), end: toInputDate(new Date()) });
+
+            const filteredSales = useMemo(() => {
+                if (filter === 'all_time') return allSales;
+                let startDate, endDate;
+                const now = new Date();
+                
+                if (filter === 'this_week') {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+                    startDate = new Date(today);
+                    startDate.setDate(today.getDate() - dayOfWeek);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate = new Date();
+                } else if (filter === 'last_week') {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+                    endDate = new Date(today);
+                    endDate.setDate(today.getDate() - dayOfWeek - 1);
+                    endDate.setHours(23, 59, 59, 999);
+                    startDate = new Date(endDate);
+                    startDate.setDate(endDate.getDate() - 6);
+                    startDate.setHours(0, 0, 0, 0);
+                } else if (filter === 'this_month') {
+                    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    endDate.setHours(23, 59, 59, 999);
+                } else if (filter === 'last_month') {
+                    startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+                    endDate.setHours(23, 59, 59, 999);
+                } else if (filter === 'custom' && customDates.start && customDates.end) {
+                    startDate = new Date(customDates.start);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate = new Date(customDates.end);
+                    endDate.setHours(23, 59, 59, 999);
+                } else {
+                    return allSales;
+                }
+                
+                return allSales.filter(sale => {
+                    const saleDate = new Date(sale.date);
+                    return saleDate >= startDate && saleDate <= endDate;
+                });
+            }, [allSales, filter, customDates]);
+
+            const handleExportSales = () => {
+                if (typeof XLSX === 'undefined') {
+                    alert('Excel export library is not available.');
+                    return;
+                }
+                
+                const dataToExport = filteredSales.map(sale => ({
+                    'Tarih': formatDate(sale.date),
+                    'Ürün/Hizmet': sale.itemName,
+                    'Personel': sale.personnelName,
+                    'Ödeme Yöntemi': sale.paymentMethod === 'cash' ? 'Nakit' : 'Kredi Kartı',
+                    'Tutar (TRY)': sale.totalPrice,
+                    'Maliyet (TRY)': sale.totalCost,
+                    'Prim (TRY)': sale.personnelCommission,
+                    'KDV (TRY)': sale.kdvTutari || 0
+                }));
+                
+                const ws = XLSX.utils.json_to_sheet(dataToExport);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Satışlar');
+                XLSX.writeFile(wb, `Satis_Raporu_${new Date().toLocaleDateString('tr-TR')}.xlsx`);
+            };
+
+            const FilterButton = ({ value, label }) => (<button onClick={() => setFilter(value)} className={`px-3 py-2 rounded-lg transition text-sm font-semibold ${filter === value ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>{label}</button>);
+            const paymentMethodRender = (method) => (method === 'cash' ? <span className="flex items-center"><Icon name="banknote" size={16} className="mr-2 text-green-600"/>Nakit</span> : <span className="flex items-center"><Icon name="credit-card" size={16} className="mr-2 text-blue-600"/>Kredi Kartı</span>);
+            const formatCurrencyCell = (value) => formatCurrency(value);
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-4">
+                         <div className="flex items-center gap-2 flex-wrap">
+                            <FilterButton value="this_week" label="Bu Hafta" />
+                            <FilterButton value="last_week" label="Geçen Hafta" />
+                            <FilterButton value="this_month" label="Bu Ay" />
+                            <FilterButton value="last_month" label="Geçen Ay" />
+                            <FilterButton value="all_time" label="Tümü" />
+                            <FilterButton value="custom" label="Özel" />
+                        </div>
+                        {filter === 'custom' && (<div className="flex flex-col sm:flex-row items-center gap-2 border-t sm:border-t-0 sm:border-l pt-2 sm:pt-0 mt-2 sm:mt-0 sm:pl-4"><Input type="date" value={customDates.start} onChange={e => setCustomDates(d => ({ ...d, start: e.target.value }))} /><Input type="date" value={customDates.end} onChange={e => setCustomDates(d => ({ ...d, end: e.target.value }))} /></div>)}
+                    </div>
+                    <DataTable 
+                        columns={[
+                            { key: 'date', header: 'Tarih', render: formatDate, sortable: true }, 
+                            { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, 
+                            { key: 'personnelName', header: 'Personel', sortable: true }, 
+                            { key: 'paymentMethod', header: 'Ödeme', render: paymentMethodRender, sortable: true }, 
+                            { key: 'totalPrice', header: 'Tutar', render: formatCurrencyCell, sortable: true }, 
+                            { key: 'totalCost', header: 'Maliyet', render: formatCurrencyCell, sortable: true }, 
+                            { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }, 
+                            { key: 'kdvTutari', header: 'KDV', render: (kdv) => kdv ? formatCurrencyCell(kdv) : '-', sortable: true }
+                        ]} 
+                        data={filteredSales} 
+                        onEdit={onEdit} 
+                        onDelete={onDelete} 
+                        onAddItem={onAddItem}
+                        addItemLabel="Yeni Satış Ekle"
+                        onExport={handleExportSales}
+                    />
+                </div>
+            );
+        };
+        const DataTable = ({ columns, data, onEdit, onDelete, onViewDetails, onAddItem, addItemLabel, onImport, onExport, hideActions = false }) => {
             const [sortConfig, setSortConfig] = useState(null);
             const sortedData = useMemo(() => { let sortableItems = [...data]; if (sortConfig !== null) { sortableItems.sort((a, b) => { const valA = a[sortConfig.key] || ''; const valB = b[sortConfig.key] || ''; if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1; return 0; }); } return sortableItems; }, [data, sortConfig]);
             const requestSort = (key) => { let direction = 'ascending'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') { direction = 'descending'; } setSortConfig({ key, direction }); };
-            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody></table></div>{sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}</div>);
+            return (<div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm"><div className="flex flex-col sm:flex-row justify-end mb-4 space-y-2 sm:space-y-0 sm:space-x-3">{onImport && (<Button onClick={onImport} className="bg-green-600 hover:bg-green-700 text-white"><Icon name="upload" size={18}/><span>Excel'den Yükle</span></Button>)}{onExport && (<Button onClick={onExport} className="bg-teal-600 hover:bg-teal-700 text-white"><Icon name="download" size={18}/><span>Excel'e Aktar</span></Button>)}{onAddItem && (<Button onClick={onAddItem} className="w-full sm:w-auto"><Icon name="plus" size={18}/><span>{addItemLabel}</span></Button>)}</div><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-gray-200">{columns.map(col => (<th key={col.key} className="p-2 md:p-4 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap" onClick={() => col.sortable && requestSort(col.key)}><div className="flex items-center">{col.header}{col.sortable && sortConfig?.key === col.key && (sortConfig.direction === 'ascending' ? <Icon name="chevron-up" size={16} /> : <Icon name="chevron-down" size={16} />)}</div></th>))}{!hideActions && <th className="p-2 md:p-4 text-sm font-semibold text-gray-600 text-right">İşlemler</th>}</tr></thead><tbody>{sortedData.map(item => (<tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">{columns.map(col => (<td key={col.key} className="p-2 md:p-4 text-gray-700 whitespace-nowrap">{col.render ? col.render(item[col.key], item) : item[col.key]}</td>))}{!hideActions && <td className="p-2 md:p-4"><div className="flex space-x-3 justify-end">{onViewDetails && <button onClick={() => onViewDetails(item.id)} className="text-green-600 hover:text-green-800" title="Detayları Gör"><Icon name="eye" size={18} /></button>}{onEdit && <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-800" title="Düzenle"><Icon name="edit" size={18} /></button>}{onDelete && <button onClick={() => onDelete(item.id)} className="text-red-600 hover:text-red-800" title="Sil"><Icon name="trash-2" size={18} /></button>}</div></td>}</tr>))}</tbody></table></div>{sortedData.length === 0 && <p className="text-center text-gray-500 py-8">Gösterilecek veri bulunamadı.</p>}</div>);
         };
 
         // --- App Component (Main Logic) ---
@@ -625,8 +736,6 @@
             };
 
             const renderView = () => {
-                const paymentMethodRender = (method) => (method === 'cash' ? <span className="flex items-center"><Icon name="banknote" size={16} className="mr-2 text-green-600"/>Nakit</span> : <span className="flex items-center"><Icon name="credit-card" size={16} className="mr-2 text-blue-600"/>Kredi Kartı</span>);
-                
                 const costRender = (cost, item) => {
                     if (item.costType === 'percentage') {
                         return `${cost}%`;
@@ -637,7 +746,7 @@
                 const formatCurrencyCell = (value) => formatCurrency(value);
                 switch (view) {
                     case 'dashboard': return <Dashboard allSales={sales} personnel={personnel} />;
-                    case 'sales': return <DataTable columns={[{ key: 'date', header: 'Tarih', render: formatDate, sortable: true }, { key: 'itemName', header: 'Ürün/Hizmet', sortable: true }, { key: 'personnelName', header: 'Personel', sortable: true }, { key: 'paymentMethod', header: 'Ödeme', render: paymentMethodRender, sortable: true }, { key: 'totalPrice', header: 'Tutar', render: formatCurrencyCell, sortable: true }, { key: 'netProfit', header: 'Net Kâr', render: formatCurrencyCell, sortable: true }, { key: 'personnelCommission', header: 'Prim', render: formatCurrencyCell, sortable: true }, { key: 'kdvTutari', header: 'KDV', render: (kdv) => kdv ? formatCurrencyCell(kdv) : '-', sortable: true }]} data={sales} onEdit={(item) => openModal('sale', item)} onDelete={(id) => handleDeleteConfirmation('sales', id)} onAddItem={() => openModal('sale')} addItemLabel="Yeni Satış Ekle" />;
+                    case 'sales': return <SalesView allSales={sales} onEdit={(item) => openModal('sale', item)} onDelete={(id) => handleDeleteConfirmation('sales', id)} onAddItem={() => openModal('sale')} />;
                     case 'personnel': if (selectedPersonnelId) { const person = personnel.find(p => p.id === selectedPersonnelId); return <PersonnelDetailView personnel={person} allSales={sales} onBack={() => setSelectedPersonnelId(null)} />; } return <DataTable columns={[{ key: 'name', header: 'Personel Adı', sortable: true }]} data={personnel} onViewDetails={(id) => setSelectedPersonnelId(id)} onEdit={(item) => openModal('personnel', item)} onDelete={(id) => handleDeleteConfirmation('personnel', id)} onAddItem={() => openModal('personnel')} addItemLabel="Yeni Personel Ekle" />;
                     case 'items': 
                         return (
@@ -750,3 +859,4 @@
     </script>
 </body>
 </html>
+```
